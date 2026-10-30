@@ -1,5 +1,5 @@
 // Lets the app open without internet. App files: fresh copy when online, saved copy when offline.
-const CACHE = 'life-tracker-v1';
+const CACHE = 'life-tracker-v2';
 const APP_FILES = [
   './', './index.html', './styles.css', './app.js', './store.js', './firebase-config.js',
   './manifest.webmanifest', './icons/icon.svg', './icons/icon-180.png', './icons/icon-512.png',
@@ -34,8 +34,9 @@ self.addEventListener('fetch', (event) => {
 
   if (url.origin !== self.location.origin) return;
 
+  // Always ask the server whether a file changed, so updates show up right away.
   event.respondWith(
-    fetch(req)
+    fetch(new Request(req.url, { cache: 'no-cache', credentials: 'same-origin' }))
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
