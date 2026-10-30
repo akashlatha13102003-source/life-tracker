@@ -54,7 +54,10 @@ async function cloudStore(onChange) {
   ]);
 
   const app = initializeApp(firebaseConfig);
-  const auth = A.getAuth(app);
+  // Email/password only: skip the Google popup helper so no extra scripts load.
+  const auth = A.initializeAuth(app, {
+    persistence: [A.indexedDBLocalPersistence, A.browserLocalPersistence],
+  });
   let db;
   try {
     // Keeps a copy on the phone, so the app works offline and syncs later.
