@@ -207,6 +207,28 @@ svg { display: block; flex: none; }
 .tier svg { color: var(--tier, var(--text-2)); }
 .hero-sub { color: var(--text-2); font-size: 14px; margin-top: 8px; }
 
+.targets { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.target {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.target svg { color: var(--text-3); }
+.target.done {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--good) 40%, transparent);
+  background: color-mix(in srgb, var(--good) 12%, transparent);
+}
+.target.done svg { color: var(--good); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
 /* ---------- Metric tiles ---------- */
 .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .metric {
