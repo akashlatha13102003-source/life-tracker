@@ -1107,7 +1107,7 @@ function waterCustom() {
 /* ---------- Push notification reminders ---------- */
 
 // Public half of the push key pair (safe to publish). The private half lives only in a GitHub secret.
-const VAPID_PUBLIC_KEY = 'BIlide31K5_TlODvwJKaH6dp3bma-zdTZgBGnlSmLQE6AHX3Fib3CqeLdCLUdFC5D9ZC6ip57A1HUFl3I_Ud1yY';
+const VAPID_PUBLIC_KEY = 'BO3GE4rWv3A5so8eruftMELzeEkpn0yiqMxITa9gDUUPUd4_jwbYSKYZU-N2MUsTQDIh5YcUqpiKpjZd6qZyabA';
 const REMINDER_DEFAULTS = { enabled: false, start: '09:00', end: '21:00', every: 120 };
 const reminderSettings = () => ({ ...REMINDER_DEFAULTS, ...(data().settings.reminders ?? {}) });
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -1181,8 +1181,15 @@ async function enableReminders(schedule) {
   if (permission !== 'granted') { toast('Notifications were not allowed', true); remindersSheet(); return; }
   try {
     const reg = await navigator.serviceWorker.ready;
-    const sub = (await reg.pushManager.getSubscription())
-      ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID_PUBLIC_KEY) });
+    const appKey = b64ToBytes(VAPID_PUBLIC_KEY);
+    let sub = await reg.pushManager.getSubscription();
+    // A subscription made with an older key can't receive our pushes: replace it.
+    const oldKey = sub?.options?.applicationServerKey ? new Uint8Array(sub.options.applicationServerKey) : null;
+    if (sub && oldKey && (oldKey.length !== appKey.length || oldKey.some((b, i) => b !== appKey[i]))) {
+      await sub.unsubscribe();
+      sub = null;
+    }
+    sub = sub ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appKey });
     const json = sub.toJSON();
     const subs = [...(reminderSettings().subs ?? []).filter((x) => x.endpoint !== json.endpoint),
       { endpoint: json.endpoint, keys: json.keys, addedAt: Date.now(), device: /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : 'Browser' }];
