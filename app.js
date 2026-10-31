@@ -676,12 +676,7 @@ function waterView() {
         </div>
       </section>
 
-      <button class="row card press" data-action="water-reminders" style="padding:16px 18px">
-        <div class="tile-icon" style="--c:var(--water)">${icon('bell', 20)}</div>
-        <div class="row-main"><div class="row-title">Drink reminders</div>
-          <div class="row-sub">Alerts on your iPhone, even when the app is closed</div></div>
-        <div class="row-end faint">${icon('right', 18)}</div>
-      </button>
+      ${reminderCard()}
 
       <section class="card">
         <div class="card-head"><div class="card-title">Today's log</div><div class="card-sub">${today.length} ${today.length === 1 ? 'entry' : 'entries'}</div></div>
@@ -837,9 +832,9 @@ function openSheet(title, body, onSave, saveLabel = 'Save', accent = 'var(--text
     <form class="sheet" novalidate autocomplete="off" role="dialog" aria-modal="true" aria-label="${esc(title)}" style="--c:${accent}">
       <div class="grabber"></div>
       <div class="sheet-head">
-        <button type="button" class="text-btn" data-action="sheet-close">${onSave ? 'Cancel' : 'Close'}</button>
+        <button type="button" class="text-btn" data-action="sheet-close">${onSave && saveLabel ? 'Cancel' : 'Close'}</button>
         <h2>${esc(title)}</h2>
-        ${onSave ? `<button type="submit" class="text-btn strong">${esc(saveLabel)}</button>` : '<span></span>'}
+        ${onSave && saveLabel ? `<button type="submit" class="text-btn strong">${esc(saveLabel)}</button>` : '<span></span>'}
       </div>
       <div class="sheet-body">${body}</div>
     </form>`;
@@ -1109,9 +1104,122 @@ function waterCustom() {
   setTimeout(() => document.querySelector('[name=ml]')?.focus(), 80);
 }
 
+/* ---------- Push notification reminders ---------- */
+
+// Public half of the push key pair (safe to publish). The private half lives only in a GitHub secret.
+const VAPID_PUBLIC_KEY = 'BIlide31K5_TlODvwJKaH6dp3bma-zdTZgBGnlSmLQE6AHX3Fib3CqeLdCLUdFC5D9ZC6ip57A1HUFl3I_Ud1yY';
+const REMINDER_DEFAULTS = { enabled: false, start: '09:00', end: '21:00', every: 120 };
+const reminderSettings = () => ({ ...REMINDER_DEFAULTS, ...(data().settings.reminders ?? {}) });
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const fmtHM = (hm) => {
+  const [h, m] = String(hm).split(':').map(Number);
+  const d = new Date(); d.setHours(h || 0, m || 0, 0, 0);
+  return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: m ? '2-digit' : undefined });
+};
+const everyLabel = (min) => (min % 60 === 0 ? `${min / 60} h` : `${(min / 60).toFixed(1)} h`);
+
+function reminderCard() {
+  const r = reminderSettings();
+  const on = r.enabled && (r.subs ?? []).length > 0;
+  return `<button class="row card press" data-action="water-reminders" style="padding:16px 18px">
+    <div class="tile-icon" style="--c:var(--water)">${icon('bell', 20)}</div>
+    <div class="row-main"><div class="row-title">Drink reminders</div>
+      <div class="row-sub">${on ? `On · every ${everyLabel(r.every)} · ${fmtHM(r.start)}–${fmtHM(r.end)}` : 'Off · tap to get notifications from this app'}</div></div>
+    <div class="row-end">${on ? `<span class="status" style="--s:var(--good)">${icon('check', 15, 2.4)}On</span>` : `<span class="faint">${icon('right', 18)}</span>`}</div>
+  </button>`;
+}
+
+function b64ToBytes(b64url) {
+  const pad = '='.repeat((4 - (b64url.length % 4)) % 4);
+  const raw = atob((b64url + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+function remindersSheet() {
+  const r = reminderSettings();
+  const on = r.enabled && (r.subs ?? []).length > 0;
+  const blocked = !pushSupported() || !isStandalone();
+  const denied = pushSupported() && Notification.permission === 'denied';
+  openSheet('Drink reminders', `
+    <div class="detail-hero"><div class="tile-icon" style="--c:var(--water)">${icon('bell', 26)}</div>
+      <h3>${on ? 'Reminders are on' : 'Get reminders from Life Tracker'}</h3>
+      <p class="muted small" style="margin-top:6px;max-width:330px;margin-inline:auto">A notification at each time below. Reminders stop for the day once you reach your water goal.</p></div>
+    ${blocked ? `<section class="card" style="border-color:color-mix(in srgb,var(--warning) 40%,transparent)">
+      <div class="status" style="--s:var(--warning)">${icon('alert', 16, 2.2)}Open from your Home Screen</div>
+      <p class="muted small" style="margin-top:6px">iPhone only allows notifications for web apps opened from the Home Screen icon. Add Life Tracker to your Home Screen, open it from there, then come back here.</p></section>` : ''}
+    ${denied ? `<section class="card" style="border-color:color-mix(in srgb,var(--critical) 40%,transparent)">
+      <div class="status" style="--s:var(--critical)">${icon('alert', 16, 2.2)}Notifications are blocked</div>
+      <p class="muted small" style="margin-top:6px">Open iPhone <b>Settings → Notifications → Life Tracker</b> and turn on <b>Allow Notifications</b>.</p></section>` : ''}
+    <span class="label">Schedule</span>
+    <div class="field-row">
+      ${field('From', `<input type="time" name="start" value="${esc(r.start)}">`)}
+      ${field('Until', `<input type="time" name="end" value="${esc(r.end)}">`)}
+    </div>
+    <span class="label">Remind me every</span>
+    ${seg('every', ['1 h', '1.5 h', '2 h', '3 h'], everyLabel(r.every))}
+    <div class="stack" style="margin-top:18px;gap:10px">
+      <button type="submit" class="btn tint press" style="--c:var(--water)" ${blocked || denied ? 'disabled' : ''}>${icon('bell', 18)}${on ? 'Save changes' : 'Turn on notifications'}</button>
+      ${on ? `<button type="button" class="btn ghost press" data-action="reminders-test">${icon('bolt', 18)}Show a test notification</button>
+        <button type="button" class="btn danger press" data-action="reminders-off">Turn off reminders</button>` : ''}
+      <button type="button" class="text-btn" style="margin:2px auto 0" data-action="reminders-shortcuts">Or use the Shortcuts app instead</button>
+    </div>
+  `, (form, f) => {
+    const every = { '1 h': 60, '1.5 h': 90, '2 h': 120, '3 h': 180 }[f.get('every')] ?? 120;
+    const start = String(f.get('start') || '09:00');
+    const end = String(f.get('end') || '21:00');
+    if (end <= start) { toast('“Until” must be later than “From”', true); return false; }
+    enableReminders({ start, end, every });
+    return false; // the sheet closes once the phone has said yes
+  }, null, 'var(--water)');
+}
+
+async function enableReminders(schedule) {
+  if (!pushSupported() || !isStandalone()) { toast('Open Life Tracker from your Home Screen first', true); return; }
+  // Ask first, while the tap still counts as the user's action.
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') { toast('Notifications were not allowed', true); remindersSheet(); return; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription())
+      ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID_PUBLIC_KEY) });
+    const json = sub.toJSON();
+    const subs = [...(reminderSettings().subs ?? []).filter((x) => x.endpoint !== json.endpoint),
+      { endpoint: json.endpoint, keys: json.keys, addedAt: Date.now(), device: /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : 'Browser' }];
+    write(store.saveSettings({ reminders: { ...schedule, enabled: true, subs } }), 'Reminders are on');
+    closeSheet();
+  } catch (err) {
+    toast(`Couldn’t turn on notifications: ${err?.message ?? err}`, true);
+  }
+}
+
+async function testNotification() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification('Time to drink water 💧', {
+      body: 'This is a test. Real reminders arrive at your scheduled times.',
+      icon: './icons/icon-180.png', tag: 'water-test', data: { url: './#water' },
+    });
+  } catch (err) { toast(`Test failed: ${err?.message ?? err}`, true); }
+}
+
+async function disableReminders() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    const endpoint = sub?.endpoint;
+    await sub?.unsubscribe();
+    const subs = (reminderSettings().subs ?? []).filter((x) => x.endpoint !== endpoint);
+    write(store.saveSettings({ reminders: { ...reminderSettings(), enabled: subs.length > 0, subs } }), 'Reminders turned off');
+  } catch {
+    write(store.saveSettings({ reminders: { ...reminderSettings(), enabled: false, subs: [] } }), 'Reminders turned off');
+  }
+  closeSheet();
+}
+
 function remindersHelp() {
   const times = ['8:00 AM', '10:00 AM', '12:00 PM', '2:00 PM', '4:00 PM', '6:00 PM', '8:00 PM'];
-  openSheet('Drink reminders', `
+  openSheet('Shortcuts reminders', `
     <div class="detail-hero"><div class="tile-icon" style="--c:var(--water)">${icon('bell', 26)}</div>
       <h3>Set up once, works daily</h3>
       <p class="muted small" style="margin-top:6px;max-width:320px;margin-inline:auto">Uses the free Shortcuts app on your iPhone. About 1 minute per reminder time.</p></div>
@@ -1256,7 +1364,10 @@ const ACTIONS = {
     const next = Math.min(8000, Math.max(500, data().settings.waterGoal + Number(el.dataset.step)));
     write(store.saveSettings({ waterGoal: next }));
   },
-  'water-reminders': () => remindersHelp(),
+  'water-reminders': () => remindersSheet(),
+  'reminders-shortcuts': () => remindersHelp(),
+  'reminders-test': () => testNotification(),
+  'reminders-off': () => disableReminders(),
   'goal-add': () => goalForm(),
   'goal-open': (el) => goalForm(el.dataset.id),
   'delete': (el) => {
