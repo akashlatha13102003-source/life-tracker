@@ -121,6 +121,77 @@ const PAYMENTS = ['UPI', 'Cash', 'Card', 'Bank'];
 const GOAL_TYPES = ['Fitness', 'Money', 'Other'];
 const GOAL_UNITS = ['kg', '₹', 'km', 'workouts', 'days', 'steps'];
 
+// Gym sessions: muscle groups and a starter exercise library for each.
+const MUSCLES = ['Chest', 'Back', 'Biceps', 'Triceps', 'Shoulders', 'Legs', 'Abs', 'Forearms', 'Cardio'];
+const LIBRARY = {
+  Chest: ['Bench press', 'Incline bench press', 'Dumbbell press', 'Incline dumbbell press', 'Cable fly', 'Pec deck', 'Chest dips', 'Push-ups'],
+  Back: ['Deadlift', 'Lat pulldown', 'Pull-ups', 'Barbell row', 'Seated cable row', 'One-arm dumbbell row', 'T-bar row'],
+  Biceps: ['Barbell curl', 'Dumbbell curl', 'Hammer curl', 'Preacher curl', 'Cable curl', 'Concentration curl'],
+  Triceps: ['Tricep pushdown', 'Overhead extension', 'Skull crushers', 'Close-grip bench press', 'Bench dips', 'Kickbacks'],
+  Shoulders: ['Overhead press', 'Dumbbell shoulder press', 'Lateral raise', 'Front raise', 'Rear delt fly', 'Upright row', 'Shrugs'],
+  Legs: ['Squat', 'Leg press', 'Romanian deadlift', 'Lunges', 'Leg extension', 'Leg curl', 'Calf raise'],
+  Abs: ['Crunches', 'Hanging leg raise', 'Cable crunch', 'Russian twist', 'Ab wheel', 'Plank'],
+  Forearms: ['Wrist curl', 'Reverse wrist curl', 'Reverse curl', "Farmer's walk"],
+  Cardio: ['Treadmill', 'Cycling', 'Rowing', 'Elliptical', 'Stair climber', 'Jump rope'],
+};
+const QUICK_TYPES = WORKOUT_TYPES.filter((t) => t.name !== 'Gym');
+
+/* ---------- Session helpers ---------- */
+const isActive = (w) => w.status === 'active';
+const doneWorkouts = () => data().workouts.filter((w) => !isActive(w));
+const activeSession = () => data().workouts.filter(isActive).sort((a, b) => b.at - a.at)[0] ?? null;
+/** Sets of an exercise. Older entries stored "3 sets × 10 reps @ kg" as numbers. */
+const exSets = (e) => (Array.isArray(e.sets) ? e.sets
+  : Array.from({ length: Math.max(1, Number(e.sets) || 1) }, () => ({ kg: Number(e.kg) || 0, reps: Number(e.reps) || 0 })));
+const isCardio = (e) => e.muscle === 'Cardio';
+const exVolume = (e) => (isCardio(e) ? 0 : sum(exSets(e), (s) => (s.kg || 0) * (s.reps || 0)));
+const workoutSets = (w) => sum(w.exercises ?? [], (e) => exSets(e).length);
+const workoutVolume = (w) => sum(w.exercises ?? [], exVolume);
+const normName = (n) => clean(n).toLowerCase();
+const titleCase = (n) => clean(n).toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase());
+const fmtKg = (v) => `${Math.round(v * 10) / 10}`;
+const setText = (e, s) => (isCardio(e) ? `${s.reps} min` : s.kg > 0 ? `${fmtKg(s.kg)} kg × ${s.reps}` : `${s.reps} reps`);
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+/** "4 × 8 @ 60 kg, 1 × 6 @ 65 kg": groups back-to-back identical sets. */
+function summariseSets(e, sets) {
+  const groups = [];
+  for (const s of sets) {
+    const g = groups[groups.length - 1];
+    if (g && g.kg === s.kg && g.reps === s.reps) g.n += 1; else groups.push({ kg: s.kg, reps: s.reps, n: 1 });
+  }
+  return groups.slice(0, 3).map((g) => (isCardio(e) ? `${g.reps} min`
+    : g.kg > 0 ? `${g.n} × ${g.reps} @ ${fmtKg(g.kg)} kg` : `${g.n} × ${g.reps}`)).join(', ');
+}
+const fmtClock = (ms) => {
+  const t = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(t / 3600); const m = Math.floor((t % 3600) / 60); const s = t % 60;
+  return `${h ? `${h}:` : ''}${String(m).padStart(h ? 2 : 1, '0')}:${String(s).padStart(2, '0')}`;
+};
+/** Heaviest kg ever lifted per exercise, optionally ignoring one workout. */
+function bestLifts(excludeId) {
+  const best = {};
+  for (const w of doneWorkouts()) {
+    if (w.id === excludeId) continue;
+    for (const e of w.exercises ?? []) {
+      if (isCardio(e)) continue;
+      for (const s of exSets(e)) {
+        if (s.kg > 0) best[normName(e.name)] = Math.max(best[normName(e.name)] ?? 0, s.kg);
+      }
+    }
+  }
+  return best;
+}
+/** The most recent finished session's sets for an exercise ("last time"). */
+function lastPerformance(name, excludeId) {
+  const key = normName(name);
+  const ws = doneWorkouts().filter((w) => w.id !== excludeId).sort((a, b) => b.at - a.at);
+  for (const w of ws) {
+    const e = (w.exercises ?? []).find((x) => normName(x.name) === key);
+    if (e) return { at: w.at, sets: exSets(e), ex: e };
+  }
+  return null;
+}
+
 const typeIcon = (t) => WORKOUT_TYPES.find((x) => x.name === t)?.icon ?? 'bolt';
 const cat = (c) => CATEGORIES.find((x) => x.name === c) ?? CATEGORIES[CATEGORIES.length - 1];
 const goalValue = (v, unit) => (unit === '₹' ? rupees(v) : `${Math.round(v * 10) / 10} ${unit}`);
@@ -140,9 +211,12 @@ const OLD_ROUTES = { home: 'today', workout: 'train' };
 let store;
 let signedIn = false;
 const initialHash = location.hash.slice(1);
-let route = TABS.some((t) => t.id === initialHash) ? initialHash : (OLD_ROUTES[initialHash] ?? 'today');
+const ROUTES = [...TABS.map((t) => t.id), 'session'];
+let route = ROUTES.includes(initialHash) ? initialHash : (OLD_ROUTES[initialHash] ?? 'today');
 let moneyMonth = new Date();
 let animateNext = true;
+// Unsaved kg/reps typed into a session exercise card, kept across re-renders.
+const drafts = {};
 
 const data = () => store.data;
 const settings = () => ({ trainGoal: 45, ...data().settings });
@@ -265,7 +339,9 @@ function todayView() {
   const d = data();
   const s = settings();
   const days = last7();
-  const minsToday = sum(d.workouts.filter((w) => isToday(w.at)), (w) => w.minutes);
+  const finished = doneWorkouts();
+  const live = activeSession();
+  const minsToday = sum(finished.filter((w) => isToday(w.at)), (w) => w.minutes);
   const waterToday = sum(d.water.filter((w) => isToday(w.at)), (w) => w.ml);
   const spentToday = sum(d.expenses.filter((e) => isToday(e.at)), (e) => e.amount);
   const allowance = s.budget / daysInMonth();
@@ -278,9 +354,9 @@ function todayView() {
   const tier = tierFor(score);
   const overToday = spentToday > allowance;
 
-  const mins = days.map((day) => sum(d.workouts.filter((w) => sameDay(w.at, day)), (w) => w.minutes));
+  const mins = days.map((day) => sum(finished.filter((w) => sameDay(w.at, day)), (w) => w.minutes));
   const spend = days.map((day) => sum(d.expenses.filter((e) => sameDay(e.at, day)), (e) => e.amount));
-  const st = streak(d.workouts);
+  const st = streak(finished);
   const dateLabel = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
 
   const metric = (tab, label, iconName, color, frac, value, of) => `
@@ -294,6 +370,7 @@ function todayView() {
   return `
     ${head(dateLabel, 'Today', settingsBtn)}
     <div class="stack">
+      ${live ? liveBanner(live) : ''}
       <section class="card hero" style="--glow:color-mix(in srgb, ${tier.color} 35%, transparent)">
         <div class="eyebrow">Day score</div>
         <div class="dial-wrap">${dial(score / 100, tier.color === 'var(--text-3)' ? 'var(--text-2)' : tier.color, { id: 'score' })}
@@ -312,7 +389,7 @@ function todayView() {
       </div>
 
       <div class="quick">
-        <button class="press" data-action="add-workout" style="--c:var(--train)">${icon('plus', 16, 2.4)}Workout</button>
+        <button class="press" data-action="${live ? 'resume-session' : 'start-session'}" style="--c:var(--train)">${icon(live ? 'right' : 'gym', 16, 2.2)}${live ? 'Resume' : 'Gym'}</button>
         <button class="press" data-action="add-expense" style="--c:var(--money)">${icon('plus', 16, 2.4)}Expense</button>
         <button class="press" data-action="water-add" data-ml="250" style="--c:var(--water)">${icon('water', 16, 2.2)}250 ml</button>
       </div>
@@ -338,32 +415,46 @@ function todayView() {
     </div>`;
 }
 
+function liveBanner(s) {
+  const muscles = (s.muscles ?? []).join(' · ') || 'Gym';
+  return `<button class="card live-banner press" data-action="resume-session">
+    <span class="live-dot" aria-hidden="true"></span>
+    <div class="row-main"><div class="eyebrow" style="color:var(--train)">Workout in progress</div>
+      <div class="row-title">${esc(muscles)}</div>
+      <div class="row-sub num"><span data-timer="${s.at}">${fmtClock(Date.now() - s.at)}</span> · ${plural(workoutSets(s), "set")}</div></div>
+    <div class="row-end"><span class="pill">Resume ${icon('right', 14, 2.4)}</span></div>
+  </button>`;
+}
+
 function trainView() {
-  const ws = [...data().workouts].sort((a, b) => b.at - a.at);
+  const ws = doneWorkouts().sort((a, b) => b.at - a.at);
+  const live = activeSession();
   const week = ws.filter((w) => sameWeek(w.at));
-  const best = {};
-  for (const w of ws) {
-    for (const e of w.exercises ?? []) {
-      if (!(e.kg > 0)) continue;
-      const key = clean(e.name).toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase());
-      best[key] = Math.max(best[key] ?? 0, e.kg);
-    }
-  }
-  const pbs = Object.entries(best).sort((a, b) => b[1] - a[1]);
+  const best = bestLifts();
+  const pbs = Object.entries(best).sort((a, b) => b[1] - a[1]).slice(0, 8);
   const days = last7();
+  const weekGym = week.filter((w) => w.type === 'Gym');
 
   return `
-    ${head('This week', 'Train', addBtn('add-workout', 'Log workout'))}
+    ${head('This week', 'Train', live ? '' : addBtn('quick-log', 'Quick log'))}
     <div class="stack">
+      ${live ? liveBanner(live) : `
+      <section class="card start-card">
+        <div class="tile-icon" style="--c:var(--train);width:52px;height:52px;border-radius:16px">${icon('gym', 26)}</div>
+        <div class="row-main"><div class="card-title">Gym session</div>
+          <div class="card-sub">Pick today's muscles, then log every set as you go.</div></div>
+        <button class="btn tint press" style="--c:var(--train);margin-top:14px" data-action="start-session">${icon('bolt', 18, 2.2)}Start workout</button>
+        <button class="btn ghost press" style="margin-top:10px" data-action="quick-log">${icon('run', 18)}Log run, walk, yoga…</button>
+      </section>`}
+
       <div class="stats">
         <div class="stat"><div class="stat-value num">${week.length}</div><div class="stat-label">Sessions</div></div>
         <div class="stat"><div class="stat-value num">${sum(week, (w) => w.minutes)}</div><div class="stat-label">Active min</div></div>
-        <div class="stat"><div class="stat-value num">${sum(week, (w) => w.calories).toLocaleString('en-IN')}</div><div class="stat-label">Calories</div></div>
+        <div class="stat"><div class="stat-value num">${shortKg(sum(weekGym, workoutVolume))}</div><div class="stat-label">Volume lifted</div></div>
       </div>
 
       <section class="card">
-        <div class="card-head"><div class="card-title">Last 7 days</div>
-          <div class="card-sub">${icon('flame', 14)}</div></div>
+        <div class="card-head"><div class="card-title">Last 7 days</div><div class="card-sub">${icon('flame', 14)}</div></div>
         <div class="week">${days.map((day, i) => {
           const done = ws.some((w) => sameDay(w.at, day));
           return `<div class="day"><div class="day-box ${done ? 'done' : ''} ${i === 6 ? 'today' : ''}">${done ? icon('check', 16, 2.6) : ''}</div>
@@ -371,25 +462,102 @@ function trainView() {
         }).join('')}</div>
       </section>
 
-      <button class="btn tint press" style="--c:var(--train)" data-action="add-workout">${icon('plus', 18, 2.4)}Log workout</button>
-
       ${pbs.length ? `<section class="card">
         <div class="card-head"><div class="card-title">Personal bests</div><div class="card-sub">${icon('trophy', 16)}</div></div>
         ${pbs.map(([name, kg]) => `<div class="row"><div class="tile-icon" style="--c:var(--warning)">${icon('trophy', 18)}</div>
-          <div class="row-main"><div class="row-title">${esc(name)}</div><div class="row-sub">Heaviest set</div></div>
-          <div class="row-end"><strong>${kg} kg</strong></div></div>`).join('')}
+          <div class="row-main"><div class="row-title">${esc(titleCase(name))}</div><div class="row-sub">Heaviest set</div></div>
+          <div class="row-end"><strong>${fmtKg(kg)} kg</strong></div></div>`).join('')}
       </section>` : ''}
 
       <section class="card">
         <div class="card-head"><div class="card-title">History</div><div class="card-sub">${ws.length} total</div></div>
-        ${ws.length ? ws.map((w) => `
-          <button class="row press" data-action="workout-open" data-id="${esc(w.id)}">
+        ${ws.length ? ws.map((w) => {
+          const isGym = w.type === 'Gym';
+          const title = isGym && w.muscles?.length ? w.muscles.join(' · ') : w.type;
+          const sub = isGym && (w.exercises ?? []).length
+            ? `${fmtDay(w.at)} · ${plural((w.exercises ?? []).length, "exercise")} · ${plural(workoutSets(w), "set")}`
+            : `${fmtDay(w.at)} · ${fmtTime(w.at)}`;
+          return `<button class="row press" data-action="workout-open" data-id="${esc(w.id)}">
             <div class="tile-icon" style="--c:var(--train)">${icon(typeIcon(w.type), 20)}</div>
-            <div class="row-main"><div class="row-title">${esc(w.type)}</div>
-              <div class="row-sub">${fmtDay(w.at)} · ${fmtTime(w.at)}</div></div>
-            <div class="row-end"><strong>${w.minutes} min</strong><span>${esc(w.intensity)}</span></div>
-          </button>`).join('') : emptyState('train', 'No workouts yet. Log your first one.')}
+            <div class="row-main"><div class="row-title">${esc(title)}</div><div class="row-sub">${esc(sub)}</div></div>
+            <div class="row-end"><strong>${w.minutes} min</strong><span>${isGym && workoutVolume(w) ? `${shortKg(workoutVolume(w))} kg` : esc(w.intensity ?? '')}</span></div>
+          </button>`;
+        }).join('') : emptyState('train', 'No workouts yet. Start your first session.')}
       </section>
+    </div>`;
+}
+
+const shortKg = (v) => (v >= 10000 ? `${(v / 1000).toFixed(1).replace(/\.0$/, '')}K` : Math.round(v).toLocaleString('en-IN'));
+
+/* ---------- Live gym session ---------- */
+
+function sessionView() {
+  const s = activeSession();
+  if (!s) return '';
+  const exercises = s.exercises ?? [];
+  const muscles = (s.muscles ?? []).join(' · ') || 'Gym';
+  const prev = bestLifts(s.id);
+
+  const cards = exercises.map((e, i) => {
+    const sets = exSets(e);
+    const cardio = isCardio(e);
+    const last = lastPerformance(e.name, s.id);
+    const lastSet = sets[sets.length - 1] ?? last?.sets?.[0];
+    const draft = drafts[`${s.id}:${i}`] ?? {};
+    const kgVal = draft.kg ?? (lastSet ? fmtKg(lastSet.kg || 0) : '');
+    const repsVal = draft.reps ?? (lastSet ? String(lastSet.reps || '') : (cardio ? '10' : '10'));
+    const topKg = Math.max(0, ...sets.map((x) => x.kg || 0));
+    const isPr = !cardio && topKg > 0 && topKg > (prev[normName(e.name)] ?? 0) && prev[normName(e.name)] !== undefined;
+
+    return `<section class="card ex-card" data-ex="${i}">
+      <div class="ex-head">
+        <div class="row-main">
+          <div class="row-title">${esc(e.name)}</div>
+          <div class="row-sub">${esc(e.muscle ?? '')}${last ? ` · Last: ${esc(summariseSets(last.ex, last.sets))}` : ' · First time'}</div>
+        </div>
+        ${isPr ? `<span class="pr-badge">${icon('trophy', 13, 2.2)}New PR</span>` : ''}
+        <button class="x-btn press" data-action="session-remove-ex" data-i="${i}" aria-label="Remove ${esc(e.name)}">${icon('x', 18)}</button>
+      </div>
+      ${sets.length ? `<div class="set-list">${sets.map((x, j) => `
+        <div class="set-row"><span class="set-no num">${j + 1}</span><span class="set-val num">${esc(setText(e, x))}</span>
+          <button class="x-btn press" data-action="session-del-set" data-i="${i}" data-j="${j}" aria-label="Delete set ${j + 1}">${icon('x', 16)}</button></div>`).join('')}
+      </div>` : ''}
+      <div class="log-row ${cardio ? 'cardio' : ''}">
+        ${cardio ? '' : `<div class="num-field">
+          <span>kg</span>
+          <div class="num-ctrl">
+            <button type="button" class="press" data-action="session-step" data-i="${i}" data-f="kg" data-d="-2.5" aria-label="Less weight">${icon('minus', 16, 2.4)}</button>
+            <input class="num" data-draft="${s.id}:${i}" data-f="kg" inputmode="decimal" value="${esc(kgVal)}" placeholder="0" aria-label="Weight in kg for ${esc(e.name)}">
+            <button type="button" class="press" data-action="session-step" data-i="${i}" data-f="kg" data-d="2.5" aria-label="More weight">${icon('plus', 16, 2.4)}</button>
+          </div></div>`}
+        <div class="num-field">
+          <span>${cardio ? 'minutes' : 'reps'}</span>
+          <div class="num-ctrl">
+            <button type="button" class="press" data-action="session-step" data-i="${i}" data-f="reps" data-d="-1" aria-label="Fewer">${icon('minus', 16, 2.4)}</button>
+            <input class="num" data-draft="${s.id}:${i}" data-f="reps" inputmode="numeric" value="${esc(repsVal)}" placeholder="0" aria-label="${cardio ? 'Minutes' : 'Reps'} for ${esc(e.name)}">
+            <button type="button" class="press" data-action="session-step" data-i="${i}" data-f="reps" data-d="1" aria-label="More">${icon('plus', 16, 2.4)}</button>
+          </div></div>
+      </div>
+      <button class="btn tint press log-btn" style="--c:var(--train)" data-action="session-log" data-i="${i}">${icon('check', 18, 2.6)}Log set ${sets.length + 1}</button>
+    </section>`;
+  }).join('');
+
+  return `
+    <header class="head session-head">
+      <div><div class="eyebrow" style="color:var(--train)">${esc(muscles)}</div>
+        <h1 class="num" data-timer="${s.at}">${fmtClock(Date.now() - s.at)}</h1></div>
+      <div class="head-actions"><button class="icon-btn press" data-tab="train" aria-label="Minimise session">${icon('left', 20)}</button></div>
+    </header>
+    <div class="stack">
+      <div class="stats">
+        <div class="stat"><div class="stat-value num">${exercises.length}</div><div class="stat-label">Exercises</div></div>
+        <div class="stat"><div class="stat-value num">${workoutSets(s)}</div><div class="stat-label">Sets</div></div>
+        <div class="stat"><div class="stat-value num">${shortKg(workoutVolume(s))}</div><div class="stat-label">Volume (kg)</div></div>
+      </div>
+      ${cards || `<section class="card">${emptyState('gym', 'Add your first exercise to start logging sets.')}</section>`}
+      <button class="btn ghost press add-ex-btn" data-action="session-add-ex">${icon('plus', 18, 2.4)}Add exercise</button>
+      <button class="btn press" data-action="session-finish" ${workoutSets(s) ? '' : 'disabled'}>${icon('check', 18, 2.6)}Finish workout</button>
+      <button class="text-btn" style="color:#ff7b7b;margin:4px auto 0" data-action="session-discard">Discard session</button>
     </div>`;
 }
 
@@ -570,8 +738,12 @@ function render() {
   if (!signedIn) return;
   const view = document.getElementById('view');
   if (!view) return;
-  const tab = TABS.find((t) => t.id === route) ?? TABS[0];
-  view.innerHTML = VIEWS[tab.id]();
+  // The live session screen only exists while a session is running.
+  if (route === 'session' && !activeSession()) { route = 'train'; history.replaceState(null, '', '#train'); }
+  const inSession = route === 'session';
+  const tab = inSession ? TABS[1] : (TABS.find((t) => t.id === route) ?? TABS[0]);
+  view.innerHTML = inSession ? sessionView() : VIEWS[tab.id]();
+  document.body.classList.toggle('in-session', inSession);
   if (animateNext) {
     view.classList.remove('view-enter');
     void view.offsetWidth; // restart the entrance animation
@@ -670,7 +842,8 @@ function openSheet(title, body, onSave, saveLabel = 'Save', accent = 'var(--text
     e.preventDefault();
     if (onSave && onSave(form, new FormData(form)) !== false) closeSheet();
   });
-  requestAnimationFrame(() => requestAnimationFrame(() => { root.dataset.open = 'true'; }));
+  void root.offsetHeight; // commit the closed position, then slide in
+  root.dataset.open = 'true';
   return form;
 }
 
@@ -688,74 +861,190 @@ const seg = (name, options, checked) => `<div class="seg">${options.map((o) => `
 
 const field = (label, input) => `<label class="field"><span>${label}</span>${input}</label>`;
 
-function workoutForm() {
-  openSheet('Log workout', `
+/* ---------- Gym session sheets ---------- */
+
+function startSessionSheet() {
+  const live = activeSession();
+  if (live) { go('session'); return; }
+  openSheet('Start workout', `
+    <div class="detail-hero"><div class="tile-icon" style="--c:var(--train)">${icon('gym', 28)}</div>
+      <h3>What are you training today?</h3>
+      <p class="muted small" style="margin-top:6px">Pick one or more. The timer starts when you tap Start.</p></div>
+    <div class="chips muscles">${MUSCLES.map((m) => `
+      <label class="chip" style="--c:var(--train)"><input type="checkbox" name="muscles" value="${m}"><span>${m}</span></label>`).join('')}</div>
+  `, (form, f) => {
+    const muscles = f.getAll('muscles').filter((m) => MUSCLES.includes(m));
+    if (!muscles.length) { toast('Pick at least one muscle group', true); return false; }
+    write(store.add('workouts', {
+      at: Date.now(), type: 'Gym', status: 'active', muscles, exercises: [],
+      minutes: 0, intensity: 'Medium', calories: 0, steps: 0, notes: '',
+    }), 'Workout started');
+    route = 'session';
+    animateNext = true;
+    history.replaceState(null, '', '#session');
+    // Open the exercise picker straight away once the session exists.
+    setTimeout(() => { render(); window.scrollTo(0, 0); if (activeSession()) addExerciseSheet(); }, 260);
+  }, 'Start', 'var(--train)');
+}
+
+function addExerciseSheet() {
+  const s = activeSession();
+  if (!s) return;
+  const chosen = s.muscles?.length ? s.muscles : MUSCLES;
+  const already = new Set((s.exercises ?? []).map((e) => normName(e.name)));
+  const groups = [...chosen, ...MUSCLES.filter((m) => !chosen.includes(m))];
+  openSheet('Add exercise', `
+    <span class="label">Your own exercise</span>
+    <div class="custom-ex">
+      ${field('Name', '<input name="custom" maxlength="60" placeholder="e.g. Machine chest press">')}
+      ${field('Muscle', `<select name="muscle">${chosen.map((m) => `<option>${esc(m)}</option>`).join('')}${MUSCLES.filter((m) => !chosen.includes(m)).map((m) => `<option>${esc(m)}</option>`).join('')}</select>`)}
+    </div>
+    ${groups.map((m, gi) => `
+      <span class="label">${esc(m)}${gi >= chosen.length ? ' <span class="faint">· other</span>' : ''}</span>
+      <section class="card ex-pick">${LIBRARY[m].map((name) => `
+        <button type="button" class="row press" data-action="session-pick" data-name="${esc(name)}" data-muscle="${esc(m)}" ${already.has(normName(name)) ? 'disabled' : ''}>
+          <div class="row-main"><div class="row-title">${esc(name)}</div></div>
+          <div class="row-end faint">${already.has(normName(name)) ? icon('check', 18, 2.4) : icon('plus', 18, 2.2)}</div>
+        </button>`).join('')}</section>`).join('')}
+  `, (form, f) => {
+    const name = clean(f.get('custom'), 60);
+    if (!name) { toast('Type a name, or tap an exercise below', true); return false; }
+    addExerciseToSession(name.charAt(0).toUpperCase() + name.slice(1), f.get('muscle'));
+  }, 'Add', 'var(--train)');
+}
+
+function addExerciseToSession(name, muscle) {
+  const s = activeSession();
+  if (!s) return;
+  if ((s.exercises ?? []).some((e) => normName(e.name) === normName(name))) { toast(`${name} is already in this workout`, true); return; }
+  const exercises = [...(s.exercises ?? []), { name, muscle: MUSCLES.includes(muscle) ? muscle : 'Chest', sets: [] }];
+  write(store.update('workouts', s.id, { exercises }), `${name} added`);
+  setTimeout(() => document.querySelector('.ex-card:last-of-type')?.scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'center' }), 150);
+}
+
+function readCard(i) {
+  const s = activeSession();
+  const card = document.querySelector(`.ex-card[data-ex="${i}"]`);
+  return {
+    s, card,
+    kg: num(card?.querySelector('input[data-f=kg]')?.value),
+    reps: Math.round(num(card?.querySelector('input[data-f=reps]')?.value)),
+  };
+}
+
+function logSet(i) {
+  const { s, kg, reps } = readCard(i);
+  if (!s) return;
+  const e = s.exercises?.[i];
+  if (!e) return;
+  if (!(reps > 0)) { toast(isCardio(e) ? 'Enter the minutes' : 'Enter how many reps', true); return; }
+  if (kg < 0 || kg > 1000) { toast('Check the weight', true); return; }
+  const exercises = s.exercises.map((x, k) => (k === i
+    ? { ...x, sets: [...exSets(x), { kg: isCardio(x) ? 0 : Math.round(kg * 100) / 100, reps, at: Date.now() }] } : x));
+  delete drafts[`${s.id}:${i}`];
+  const prevBest = bestLifts(s.id)[normName(e.name)];
+  const pr = !isCardio(e) && prevBest !== undefined && kg > prevBest;
+  write(store.update('workouts', s.id, { exercises }), pr ? `New PR: ${fmtKg(kg)} kg 🏆` : `Set ${exSets(e).length + 1} logged`);
+  if (navigator.vibrate) navigator.vibrate(12);
+}
+
+function stepField(i, field, delta) {
+  const { s, card } = readCard(i);
+  const input = card?.querySelector(`input[data-f=${field}]`);
+  if (!s || !input) return;
+  const next = Math.max(0, Math.round((num(input.value) + delta) * 100) / 100);
+  input.value = field === 'kg' ? fmtKg(next) : String(Math.round(next));
+  const key = `${s.id}:${i}`;
+  drafts[key] = { ...(drafts[key] ?? {}), [field]: input.value };
+}
+
+function finishSession() {
+  const s = activeSession();
+  if (!s) return;
+  const exercises = (s.exercises ?? []).filter((e) => exSets(e).length);
+  if (!exercises.length) { toast('Log at least one set first', true); return; }
+  const minutes = Math.max(1, Math.round((Date.now() - s.at) / 60000));
+  const prevBest = bestLifts(s.id);
+  const prs = exercises.filter((e) => !isCardio(e) && prevBest[normName(e.name)] !== undefined
+    && Math.max(...exSets(e).map((x) => x.kg || 0)) > prevBest[normName(e.name)]);
+  const totalSets = sum(exercises, (e) => exSets(e).length);
+  const finished = { ...s, exercises, minutes };
+  write(store.update('workouts', s.id, {
+    status: 'done', endedAt: Date.now(), minutes, exercises,
+    intensity: totalSets >= 18 ? 'Hard' : totalSets >= 9 ? 'Medium' : 'Easy',
+  }));
+  Object.keys(drafts).forEach((k) => { if (k.startsWith(`${s.id}:`)) delete drafts[k]; });
+  route = 'train';
+  animateNext = true;
+  history.replaceState(null, '', '#train');
+  render();
+  openSheet('Workout complete', `
+    <div class="detail-hero"><div class="tile-icon" style="--c:var(--good)">${icon('check', 30, 2.4)}</div>
+      <h3>Great session!</h3><p class="muted small" style="margin-top:6px">${esc((s.muscles ?? []).join(' · '))}</p></div>
+    <div class="stats">
+      <div class="stat"><div class="stat-value num">${minutes}</div><div class="stat-label">Minutes</div></div>
+      <div class="stat"><div class="stat-value num">${totalSets}</div><div class="stat-label">Sets</div></div>
+      <div class="stat"><div class="stat-value num">${shortKg(workoutVolume(finished))}</div><div class="stat-label">Volume (kg)</div></div>
+    </div>
+    ${prs.length ? `<span class="label">New personal bests</span><section class="card">${prs.map((e) => `
+      <div class="kv"><span>${icon('trophy', 16)}${esc(e.name)}</span><span class="num">${fmtKg(Math.max(...exSets(e).map((x) => x.kg || 0)))} kg</span></div>`).join('')}</section>` : ''}
+    <span class="label">Exercises</span>
+    <section class="card">${exercises.map((e) => `
+      <div class="kv"><span>${esc(e.name)}</span><span class="num">${plural(exSets(e).length, "set")}${isCardio(e) ? '' : ` · ${shortKg(exVolume(e))} kg`}</span></div>`).join('')}</section>
+  `);
+}
+
+function quickLogForm() {
+  openSheet('Quick log', `
     <span class="label">Activity</span>
-    <div class="chips">${WORKOUT_TYPES.map((t, i) => `
+    <div class="chips">${QUICK_TYPES.map((t, i) => `
       <label class="chip"><input type="radio" name="type" value="${t.name}" ${i === 0 ? 'checked' : ''}><span>${icon(t.icon, 22)}${t.name}</span></label>`).join('')}</div>
     <span class="label">Session</span>
     <div class="field-row">
-      ${field('Duration (min)', '<input type="number" name="minutes" inputmode="numeric" value="45" min="1" max="600">')}
+      ${field('Duration (min)', '<input type="number" name="minutes" inputmode="numeric" value="30" min="1" max="600">')}
       ${field('Calories', '<input type="number" name="calories" inputmode="numeric" min="0" placeholder="Optional">')}
     </div>
-    ${field('When', `<input type="datetime-local" name="at" value="${toLocalInput(Date.now())}">`)}
+    <div class="field-row">
+      ${field('Steps', '<input type="number" name="steps" inputmode="numeric" min="0" placeholder="Optional">')}
+      ${field('When', `<input type="datetime-local" name="at" value="${toLocalInput(Date.now())}">`)}
+    </div>
     <span class="label">Intensity</span>
     ${seg('intensity', INTENSITIES, 'Medium')}
-    <span class="label">Exercises</span>
-    <div id="exercises"></div>
-    <button type="button" class="btn ghost press" data-action="add-exercise">${icon('plus', 18, 2.2)}Add exercise</button>
-    <span class="label">More</span>
-    ${field('Steps', '<input type="number" name="steps" inputmode="numeric" min="0" placeholder="Optional">')}
-    ${field('Notes', '<textarea name="notes" rows="2" maxlength="500" placeholder="How did it feel?"></textarea>')}
+    <span class="label">Notes</span>
+    ${field('How did it feel?', '<textarea name="notes" rows="2" maxlength="500" placeholder="Optional"></textarea>')}
   `, (form, f) => {
-    const exercises = [...form.querySelectorAll('.exercise')].map((row) => ({
-      name: clean(row.querySelector('[name=ex-name]').value, 60),
-      sets: Math.max(1, Math.round(num(row.querySelector('[name=ex-sets]').value))),
-      reps: Math.max(1, Math.round(num(row.querySelector('[name=ex-reps]').value))),
-      kg: Math.max(0, num(row.querySelector('[name=ex-kg]').value)),
-    })).filter((e) => e.name);
     write(store.add('workouts', {
       at: fromLocalInput(f.get('at')),
       type: f.get('type') || 'Other',
+      status: 'done',
       minutes: Math.max(1, Math.round(num(f.get('minutes')) || 1)),
       intensity: f.get('intensity') || 'Medium',
       calories: Math.max(0, Math.round(num(f.get('calories')))),
       steps: Math.max(0, Math.round(num(f.get('steps')))),
       notes: clean(f.get('notes'), 500),
-      exercises,
+      exercises: [],
     }), 'Workout saved');
   }, 'Save', 'var(--train)');
-}
-
-function addExerciseRow() {
-  document.getElementById('exercises')?.insertAdjacentHTML('beforeend', `
-    <div class="exercise">
-      <div class="exercise-top">
-        <input name="ex-name" placeholder="Exercise, e.g. Bench press" maxlength="60" aria-label="Exercise name">
-        <button type="button" class="x-btn" data-action="remove-exercise" aria-label="Remove exercise">${icon('x', 18)}</button>
-      </div>
-      <div class="ex-nums">
-        <label>Sets<input name="ex-sets" type="number" inputmode="numeric" value="3" min="1"></label>
-        <label>Reps<input name="ex-reps" type="number" inputmode="numeric" value="10" min="1"></label>
-        <label>kg<input name="ex-kg" type="number" inputmode="decimal" step="0.5" min="0" placeholder="0"></label>
-      </div>
-    </div>`);
-  document.querySelector('#exercises .exercise:last-child input')?.focus();
 }
 
 function workoutDetail(id) {
   const w = data().workouts.find((x) => x.id === id);
   if (!w) return;
-  openSheet('Workout', `
+  const isGym = w.type === 'Gym';
+  const exercises = w.exercises ?? [];
+  openSheet(isGym ? 'Gym session' : 'Workout', `
     <div class="detail-hero"><div class="tile-icon" style="--c:var(--train)">${icon(typeIcon(w.type), 28)}</div>
-      <h3>${esc(w.type)}</h3><p class="muted small">${fmtLongDate(w.at)} · ${fmtTime(w.at)}</p></div>
+      <h3>${esc(isGym && w.muscles?.length ? w.muscles.join(' · ') : w.type)}</h3>
+      <p class="muted small">${fmtLongDate(w.at)} · ${fmtTime(w.at)}</p></div>
     <div class="stats">
       <div class="stat"><div class="stat-value num">${w.minutes}</div><div class="stat-label">Minutes</div></div>
-      <div class="stat"><div class="stat-value">${esc(w.intensity)}</div><div class="stat-label">Intensity</div></div>
-      <div class="stat"><div class="stat-value num">${w.calories || '–'}</div><div class="stat-label">Calories</div></div>
+      ${isGym ? `<div class="stat"><div class="stat-value num">${workoutSets(w)}</div><div class="stat-label">Sets</div></div>
+        <div class="stat"><div class="stat-value num">${shortKg(workoutVolume(w))}</div><div class="stat-label">Volume (kg)</div></div>`
+        : `<div class="stat"><div class="stat-value">${esc(w.intensity ?? '–')}</div><div class="stat-label">Intensity</div></div>
+        <div class="stat"><div class="stat-value num">${w.calories || '–'}</div><div class="stat-label">Calories</div></div>`}
     </div>
-    ${(w.exercises ?? []).length ? `<span class="label">Exercises</span><section class="card">${w.exercises.map((e) => `
-      <div class="kv"><span>${esc(e.name)}</span><span class="num">${e.sets} × ${e.reps}${e.kg ? ` · ${e.kg} kg` : ''}</span></div>`).join('')}</section>` : ''}
+    ${exercises.map((e) => `<span class="label">${esc(e.name)}${e.muscle ? ` <span class="faint">· ${esc(e.muscle)}</span>` : ''}</span>
+      <section class="card">${exSets(e).map((x, j) => `<div class="kv"><span>Set ${j + 1}</span><span class="num">${esc(setText(e, x))}</span></div>`).join('')}</section>`).join('')}
     ${w.steps ? `<span class="label">Steps</span><section class="card"><div class="kv"><span>Steps</span><span class="num">${w.steps.toLocaleString('en-IN')}</span></div></section>` : ''}
     ${w.notes ? `<span class="label">Notes</span><section class="card muted">${esc(w.notes)}</section>` : ''}
     <button type="button" class="btn danger press" style="margin-top:20px" data-action="delete" data-col="workouts" data-id="${esc(w.id)}">${icon('trash', 18)}Delete workout</button>
@@ -915,9 +1204,37 @@ function exportBackup() {
 const ACTIONS = {
   'settings': () => settingsSheet(),
   'sheet-close': () => closeSheet(),
-  'add-workout': () => workoutForm(),
-  'add-exercise': () => addExerciseRow(),
-  'remove-exercise': (el) => el.closest('.exercise')?.remove(),
+  'add-workout': () => (activeSession() ? go('session') : startSessionSheet()),
+  'quick-log': () => quickLogForm(),
+  'start-session': () => startSessionSheet(),
+  'resume-session': () => go('session'),
+  'session-add-ex': () => addExerciseSheet(),
+  'session-pick': (el) => { closeSheet(); addExerciseToSession(el.dataset.name, el.dataset.muscle); },
+  'session-log': (el) => logSet(Number(el.dataset.i)),
+  'session-step': (el) => stepField(Number(el.dataset.i), el.dataset.f, Number(el.dataset.d)),
+  'session-del-set': (el) => {
+    const s = activeSession();
+    if (!s) return;
+    const i = Number(el.dataset.i); const j = Number(el.dataset.j);
+    const exercises = s.exercises.map((x, k) => (k === i ? { ...x, sets: exSets(x).filter((_, n) => n !== j) } : x));
+    write(store.update('workouts', s.id, { exercises }), 'Set removed');
+  },
+  'session-remove-ex': (el) => {
+    const s = activeSession();
+    const i = Number(el.dataset.i);
+    const e = s?.exercises?.[i];
+    if (!e) return;
+    if (exSets(e).length && !confirm(`Remove ${e.name} and its ${exSets(e).length} sets?`)) return;
+    Object.keys(drafts).forEach((k) => { if (k.startsWith(`${s.id}:`)) delete drafts[k]; });
+    write(store.update('workouts', s.id, { exercises: s.exercises.filter((_, k) => k !== i) }), `${e.name} removed`);
+  },
+  'session-finish': () => finishSession(),
+  'session-discard': () => {
+    const s = activeSession();
+    if (!s || !confirm('Discard this workout? Logged sets will be deleted.')) return;
+    write(store.remove('workouts', s.id), 'Workout discarded');
+    go('train');
+  },
   'workout-open': (el) => workoutDetail(el.dataset.id),
   'add-expense': () => expenseForm(),
   'expense-open': (el) => expenseDetail(el.dataset.id),
@@ -968,7 +1285,14 @@ new MutationObserver(() => document.querySelectorAll('.amount input').forEach(fi
 
 window.addEventListener('hashchange', () => {
   const tab = location.hash.slice(1);
-  if (TABS.some((t) => t.id === tab) && tab !== route) go(tab);
+  if (ROUTES.includes(tab) && tab !== route) go(tab);
+});
+
+// Remember kg/reps typed in a session card so a re-render never loses them.
+document.addEventListener('input', (e) => {
+  const key = e.target.dataset?.draft;
+  if (!key) return;
+  drafts[key] = { ...(drafts[key] ?? {}), [e.target.dataset.f]: e.target.value };
 });
 
 /* ================= Sign in ================= */
@@ -1075,6 +1399,12 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 }
 
 // Re-render once a minute so "today" rolls over at midnight.
-setInterval(() => { if (signedIn && !document.querySelector('.sheet')) render(); }, 60000);
+// (Skipped on the session screen and while a sheet is open, so typing is never interrupted.)
+setInterval(() => { if (signedIn && route !== 'session' && !document.querySelector('.sheet')) render(); }, 60000);
+
+// Live session clocks: update only the timer text every second.
+setInterval(() => {
+  document.querySelectorAll('[data-timer]').forEach((el) => { el.textContent = fmtClock(Date.now() - Number(el.dataset.timer)); });
+}, 1000);
 
 boot();
