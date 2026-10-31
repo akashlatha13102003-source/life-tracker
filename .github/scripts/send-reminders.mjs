@@ -10,7 +10,8 @@ import webpush from 'web-push';
 const VAPID_PUBLIC_KEY = 'BO3GE4rWv3A5so8eruftMELzeEkpn0yiqMxITa9gDUUPUd4_jwbYSKYZU-N2MUsTQDIh5YcUqpiKpjZd6qZyabA';
 const APP_URL = 'https://akashlatha13102003-source.github.io/life-tracker/';
 const IST_OFFSET_MIN = 330;
-const LATE_WINDOW_MIN = 60; // GitHub's scheduler can run late; still send if within an hour of the slot.
+// GitHub's scheduler often runs late or skips runs, so a run sends the latest slot it finds,
+// as long as the next slot hasn't started yet. lastSent stops repeats.
 const TEST = process.env.TEST_PUSH === 'true';
 
 for (const name of ['FIREBASE_SERVICE_ACCOUNT', 'VAPID_PRIVATE_KEY']) {
@@ -44,7 +45,7 @@ function dueSlot(r) {
   const every = Math.max(30, Number(r.every) || 120);
   let due = null;
   for (let t = start; t <= end; t += every) {
-    if (t <= nowMin && nowMin - t < LATE_WINDOW_MIN) due = t;
+    if (t <= nowMin && nowMin - t < every) due = t;
   }
   return due;
 }
@@ -63,7 +64,7 @@ async function send(subs, payload) {
   const alive = [];
   for (const sub of subs) {
     try {
-      await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify(payload), { TTL: 3600, urgency: 'normal' });
+      await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify(payload), { TTL: 3600, urgency: 'high' });
       alive.push(sub);
       console.log(`  sent to ${sub.device ?? 'device'}`);
     } catch (err) {
