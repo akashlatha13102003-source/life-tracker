@@ -1,5 +1,5 @@
 // Lets the app open without internet. App files: fresh copy when online, saved copy when offline.
-const CACHE = 'life-tracker-v2';
+const CACHE = 'life-tracker-v3';
 const APP_FILES = [
   './', './index.html', './styles.css', './app.js', './store.js', './firebase-config.js',
   './manifest.webmanifest', './icons/icon.svg', './icons/icon-180.png', './icons/icon-512.png',
