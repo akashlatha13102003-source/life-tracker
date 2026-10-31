@@ -2,7 +2,7 @@ name: Water reminders
 
 on:
   schedule:
-    - cron: '*/15 * * * *'   # every 15 minutes (GitHub may run a little late)
+    - cron: '7,22,37,52 * * * *'   # every 15 min, off the busy :00 mark (GitHub may still run late)
   workflow_dispatch:
     inputs:
       test:
