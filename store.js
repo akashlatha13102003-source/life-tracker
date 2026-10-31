@@ -3,7 +3,7 @@
 import { firebaseConfig } from './firebase-config.js';
 
 const COLLECTIONS = ['workouts', 'expenses', 'water', 'goals'];
-const DEFAULT_SETTINGS = { budget: 20000, waterGoal: 3000 };
+const DEFAULT_SETTINGS = { budget: 20000, waterGoal: 3000, trainGoal: 45 };
 const FIREBASE_VERSION = '10.12.2';
 
 const emptyData = () => ({
