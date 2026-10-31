@@ -7,7 +7,7 @@
 import admin from 'firebase-admin';
 import webpush from 'web-push';
 
-const VAPID_PUBLIC_KEY = 'BIlide31K5_TlODvwJKaH6dp3bma-zdTZgBGnlSmLQE6AHX3Fib3CqeLdCLUdFC5D9ZC6ip57A1HUFl3I_Ud1yY';
+const VAPID_PUBLIC_KEY = 'BO3GE4rWv3A5so8eruftMELzeEkpn0yiqMxITa9gDUUPUd4_jwbYSKYZU-N2MUsTQDIh5YcUqpiKpjZd6qZyabA';
 const APP_URL = 'https://akashlatha13102003-source.github.io/life-tracker/';
 const IST_OFFSET_MIN = 330;
 const LATE_WINDOW_MIN = 60; // GitHub's scheduler can run late; still send if within an hour of the slot.
