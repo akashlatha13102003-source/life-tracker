@@ -12,9 +12,15 @@ const num = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 const sum = (arr, f) => arr.reduce((s, x) => s + (Number(f(x)) || 0), 0);
+const clamp01 = (v) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
 const rupees = (n) => '₹' + Math.round(n || 0).toLocaleString('en-IN');
-const shortRupees = (n) => (n >= 100000 ? `₹${(n / 100000).toFixed(1)}L`
-  : n >= 1000 ? `₹${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : rupees(n));
+const shortRupees = (n) => {
+  const v = Math.round(n || 0);
+  if (v >= 100000) return `₹${(v / 100000).toFixed(1).replace(/\.0$/, '')}L`;
+  if (v >= 1000) return `₹${(v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, '')}K`;
+  return `₹${v}`;
+};
+const litres = (ml) => (ml / 1000).toFixed(ml % 1000 === 0 ? 0 : 1);
 
 const startOfDay = (d = new Date()) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 const sameDay = (a, b) => startOfDay(a).getTime() === startOfDay(b).getTime();
@@ -25,14 +31,16 @@ const sameMonth = (a, b) => {
 };
 const startOfWeek = (d = new Date()) => {
   const x = startOfDay(d);
-  x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); // Monday
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
   return x;
 };
 const sameWeek = (t) => startOfWeek(t).getTime() === startOfWeek().getTime();
 const last7 = () => Array.from({ length: 7 }, (_, i) => {
   const d = startOfDay(); d.setDate(d.getDate() - (6 - i)); return d;
 });
+const daysInMonth = (d = new Date()) => new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
 const weekday = (d) => new Date(d).toLocaleDateString('en-IN', { weekday: 'narrow' });
+const fmtDay = (t) => new Date(t).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
 const fmtDate = (t) => new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 const fmtLongDate = (t) => new Date(t).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
 const fmtTime = (t) => new Date(t).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
@@ -43,96 +51,191 @@ const toLocalInput = (t) => {
 const toDateInput = (t) => toLocalInput(t).slice(0, 10);
 const fromLocalInput = (s) => { const t = new Date(s).getTime(); return Number.isFinite(t) ? t : Date.now(); };
 const clean = (s, max = 200) => String(s ?? '').trim().slice(0, max);
+const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ================= Icons (simple line set) ================= */
+
+const ICONS = {
+  today: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  train: '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/>',
+  money: '<rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18M16.5 14.5h.01"/>',
+  water: '<path d="M12 3.5s6 6.4 6 10.8a6 6 0 0 1-12 0C6 9.9 12 3.5 12 3.5z"/>',
+  goals: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/>',
+  settings: '<path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  minus: '<path d="M5 12h14"/>',
+  left: '<path d="M15 18l-6-6 6-6"/>',
+  right: '<path d="M9 18l6-6-6-6"/>',
+  x: '<path d="M17 7L7 17M7 7l10 10"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  flame: '<path d="M12 3c1 3.5 5 5.6 5 10.2a5 5 0 0 1-10 0c0-2.6 1.4-4.1 2.4-5.1.3 1.5 1 2.6 2 3.1 0-3 .6-5.4.6-8.2z"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  bell: '<path d="M6 9a6 6 0 0 1 12 0c0 6.5 2.5 8 2.5 8h-17S6 15.5 6 9z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  trophy: '<path d="M8 4h8v5a4 4 0 0 1-8 0V4z"/><path d="M8 6H5.5a2.5 2.5 0 0 0 2.6 3.6M16 6h2.5a2.5 2.5 0 0 1-2.6 3.6M12 13v4M8.5 20h7M10 17h4"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  download: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14"/>',
+  logout: '<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M4 15.5V6.5A2.5 2.5 0 0 1 6.5 4h9"/>',
+  bolt: '<path d="M13 3L5 13.5h6.5L11 21l8-10.5h-6.5z"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  // Workout types
+  gym: '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/>',
+  run: '<circle cx="15" cy="4.5" r="1.8"/><path d="M7 21l3.5-6 3 2.5V21M5.5 11.5l3.5-3.5 4 1 2.5 3.5 3 1M10.5 15l-.5-4.5"/>',
+  walk: '<circle cx="13" cy="4.5" r="1.8"/><path d="M10 21l2-7 2.5 2.5V21M8.5 12l2.5-4h3l2 4 2 1"/>',
+  yoga: '<circle cx="12" cy="4.5" r="1.8"/><path d="M12 8v6M5 10.5l7 3.5 7-3.5M7.5 20l4.5-6 4.5 6"/>',
+  cycle: '<circle cx="6" cy="16.5" r="3.5"/><circle cx="18" cy="16.5" r="3.5"/><path d="M6 16.5l4-7.5h5l3 7.5M10 9l2.5 7.5M14 5.5h2.5"/>',
+  sports: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5S14.6 18.1 12 20.5M12 3.5C9.4 5.9 8.2 8.8 8.2 12s1.2 6.1 3.8 8.5"/>',
+  swim: '<path d="M3 17c2 0 2-1.5 4.5-1.5S10 17 12 17s2-1.5 4.5-1.5S19 17 21 17M3 12.5c2 0 2-1.5 4.5-1.5S10 12.5 12 12.5s2-1.5 4.5-1.5 2.5 1.5 4.5 1.5"/><circle cx="15.5" cy="6" r="1.8"/>',
+  // Expense categories
+  food: '<path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 3c-1.6.8-2.5 3-2.5 6.5H18V3zM18 9.5V21"/>',
+  travel: '<path d="M4.5 15.5l1.8-5.5a2 2 0 0 1 1.9-1.5h7.6a2 2 0 0 1 1.9 1.5l1.8 5.5v3h-15z"/><path d="M4.5 15.5h15M7.5 18.5V20M16.5 18.5V20"/>',
+  shopping: '<path d="M5.5 8h13l-1 12h-11z"/><path d="M9 8a3 3 0 0 1 6 0"/>',
+  bills: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  fun: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10 9.5v5l4-2.5z"/>',
+  health: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.2 4.2 0 0 1 12 7.3a4.2 4.2 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"/>',
+  other: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.8"/>',
+};
+const icon = (name, size = 20, sw = 1.8) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] ?? ICONS.other}</svg>`;
 
 /* ================= Catalog ================= */
 
 const WORKOUT_TYPES = [
-  { name: 'Gym', icon: '🏋️' }, { name: 'Run', icon: '🏃' }, { name: 'Walk', icon: '🚶' },
-  { name: 'Yoga', icon: '🧘' }, { name: 'Cycling', icon: '🚴' }, { name: 'Sports', icon: '⚽' },
-  { name: 'Swim', icon: '🏊' }, { name: 'Other', icon: '🤸' },
+  { name: 'Gym', icon: 'gym' }, { name: 'Run', icon: 'run' }, { name: 'Walk', icon: 'walk' },
+  { name: 'Yoga', icon: 'yoga' }, { name: 'Cycling', icon: 'cycle' }, { name: 'Sports', icon: 'sports' },
+  { name: 'Swim', icon: 'swim' }, { name: 'Other', icon: 'bolt' },
 ];
 const INTENSITIES = ['Easy', 'Medium', 'Hard'];
+// Fixed colour per category (colour follows the category, never its rank).
 const CATEGORIES = [
-  { name: 'Food', icon: '🍔', color: '#ff9f0a' },
-  { name: 'Travel', icon: '🚗', color: '#0a84ff' },
-  { name: 'Shopping', icon: '🛍️', color: '#bf5af2' },
-  { name: 'Bills', icon: '🧾', color: '#ff453a' },
-  { name: 'Entertainment', icon: '🎬', color: '#ff375f' },
-  { name: 'Health', icon: '💊', color: '#30d158' },
-  { name: 'Others', icon: '📦', color: '#8e8e93' },
+  { name: 'Food', icon: 'food', color: '#3987e5' },
+  { name: 'Travel', icon: 'travel', color: '#d95926' },
+  { name: 'Shopping', icon: 'shopping', color: '#199e70' },
+  { name: 'Bills', icon: 'bills', color: '#c98500' },
+  { name: 'Entertainment', icon: 'fun', color: '#d55181' },
+  { name: 'Health', icon: 'health', color: '#008300' },
+  { name: 'Others', icon: 'other', color: '#9085e9' },
 ];
 const PAYMENTS = ['UPI', 'Cash', 'Card', 'Bank'];
 const GOAL_TYPES = ['Fitness', 'Money', 'Other'];
 const GOAL_UNITS = ['kg', '₹', 'km', 'workouts', 'days', 'steps'];
 
-const typeIcon = (t) => WORKOUT_TYPES.find((x) => x.name === t)?.icon ?? '🤸';
+const typeIcon = (t) => WORKOUT_TYPES.find((x) => x.name === t)?.icon ?? 'bolt';
 const cat = (c) => CATEGORIES.find((x) => x.name === c) ?? CATEGORIES[CATEGORIES.length - 1];
 const goalValue = (v, unit) => (unit === '₹' ? rupees(v) : `${Math.round(v * 10) / 10} ${unit}`);
+const goalColor = (g) => (g.type === 'Money' ? 'var(--money)' : g.type === 'Fitness' ? 'var(--train)' : 'var(--goal)');
 
 const TABS = [
-  { id: 'home', label: 'Home', icon: '🏠' },
-  { id: 'workout', label: 'Workout', icon: '💪' },
-  { id: 'money', label: 'Money', icon: '💰' },
-  { id: 'water', label: 'Water', icon: '💧' },
-  { id: 'goals', label: 'Goals', icon: '🎯' },
+  { id: 'today', label: 'Today', icon: 'today', color: 'var(--text)' },
+  { id: 'train', label: 'Train', icon: 'train', color: 'var(--train)' },
+  { id: 'money', label: 'Money', icon: 'money', color: 'var(--money)' },
+  { id: 'water', label: 'Hydrate', icon: 'water', color: 'var(--water)' },
+  { id: 'goals', label: 'Goals', icon: 'goals', color: 'var(--goal)' },
 ];
+const OLD_ROUTES = { home: 'today', workout: 'train' };
 
 /* ================= State ================= */
 
 let store;
 let signedIn = false;
-let route = TABS.some((t) => t.id === location.hash.slice(1)) ? location.hash.slice(1) : 'home';
+const initialHash = location.hash.slice(1);
+let route = TABS.some((t) => t.id === initialHash) ? initialHash : (OLD_ROUTES[initialHash] ?? 'today');
 let moneyMonth = new Date();
+let animateNext = true;
 
 const data = () => store.data;
+const settings = () => ({ trainGoal: 45, ...data().settings });
 const write = (promise, okMessage) => {
   if (okMessage) toast(okMessage);
-  Promise.resolve(promise).catch((err) => toast(`Could not save: ${err?.message ?? err}`));
+  Promise.resolve(promise).catch((err) => toast(`Couldn't save: ${err?.message ?? err}`, true));
 };
 
 /* ================= Small UI pieces ================= */
 
-function toast(msg) {
+function toast(msg, isError = false) {
   const el = document.getElementById('toast');
   if (!el) return;
-  el.textContent = msg;
+  el.innerHTML = isError ? icon('alert', 18) : icon('check', 18, 2.4);
+  el.querySelector('svg').style.color = isError ? 'var(--critical)' : 'var(--good)';
+  el.append(document.createTextNode(msg));
   el.classList.add('show');
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => el.classList.remove('show'), 2200);
 }
 
-const stat = (icon, label, value) => `
-  <div class="stat"><div class="stat-icon">${icon}</div>
-  <div class="stat-value">${esc(value)}</div><div class="stat-label">${esc(label)}</div></div>`;
-
-const progress = (frac, cls) => `<div class="progress"><div class="${cls}" style="width:${Math.max(0, Math.min(frac, 1)) * 100}%"></div></div>`;
-
-function bars(values, days, cls, fmt) {
-  const max = Math.max(...values, 1);
-  return `<div class="bars">${values.map((v, i) => `
-    <div class="bar-col">
-      <div class="bar-val">${v ? esc(fmt(v)) : ''}</div>
-      <div class="bar-track"><div class="bar ${v ? cls : 'empty'}" style="height:${v ? (v / max) * 100 : 2}%"></div></div>
-      <div class="bar-label">${weekday(days[i])}</div>
-    </div>`).join('')}</div>`;
+/** Circular progress dial. Animates in from empty when `animateNext` is set. */
+function dial(frac, color, { size = 220, stroke = 14, gradient = true, id = 'g' } = {}) {
+  const r = (size - stroke) / 2 - 2;
+  const c = 2 * Math.PI * r;
+  const target = c * (1 - clamp01(frac));
+  const start = animateNext && !reduceMotion() ? c : target;
+  const gid = `dg-${id}`;
+  return `<svg viewBox="0 0 ${size} ${size}" role="presentation">
+    ${gradient ? `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="${color}" stop-opacity="0.65"/><stop offset="1" stop-color="${color}"/></linearGradient></defs>` : ''}
+    <circle class="dial-track" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke-width="${stroke}"/>
+    <circle class="dial-arc" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${gradient ? `url(#${gid})` : color}"
+      stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${c} ${c}"
+      stroke-dashoffset="${start}" data-target="${target}" transform="rotate(-90 ${size / 2} ${size / 2})"
+      ${frac <= 0 ? 'opacity="0"' : ''}/>
+  </svg>`;
 }
 
-function donut(items) {
-  const total = sum(items, (i) => i.total);
-  const r = 38;
-  const c = 2 * Math.PI * r;
-  let offset = 0;
-  const segs = items.map((i) => {
-    const len = (i.total / total) * c;
-    const gap = items.length > 1 ? Math.min(1.2, len / 3) : 0;
-    const s = `<circle r="${r}" cx="50" cy="50" fill="none" stroke="${i.color}" stroke-width="14"
-      stroke-dasharray="${Math.max(len - gap, 0.01)} ${c}" stroke-dashoffset="${-offset}" transform="rotate(-90 50 50)"/>`;
-    offset += len;
-    return s;
+function runEntryAnimations(root) {
+  // Read layout once so the starting values are committed, then set the targets:
+  // the CSS transitions take it from there (works even when frames are throttled).
+  void root.getBoundingClientRect();
+  root.querySelectorAll('.dial-arc[data-target]').forEach((arc) => { arc.style.strokeDashoffset = arc.dataset.target; });
+  root.querySelectorAll('.meter > div[data-scale]').forEach((bar) => { bar.style.transform = `scaleX(${bar.dataset.scale})`; });
+}
+
+const meter = (frac, color) => {
+  const f = clamp01(frac);
+  const start = animateNext && !reduceMotion() ? 0 : f;
+  return `<div class="meter" style="--c:${color}"><div style="transform:scaleX(${start})" data-scale="${f}"></div></div>`;
+};
+
+/** Seven-day column chart (single series: title names it, no legend). */
+function columns(values, days, color, fmt, unit) {
+  const max = Math.max(...values, 0);
+  const maxIdx = values.indexOf(max);
+  const cols = values.map((v, i) => {
+    const h = max > 0 && v > 0 ? Math.max((v / max) * 100, 4) : 0;
+    const label = `${fmt(v)}${unit ? ` ${unit}` : ''}`;
+    return `<div class="col" tabindex="0" role="listitem" aria-label="${esc(fmtDay(days[i]))}: ${esc(label)}"
+        data-tip="${esc(label)}" data-sub="${esc(i === 6 ? 'Today' : fmtDay(days[i]))}">
+      <div class="col-val">${i === maxIdx && v > 0 ? esc(fmt(v)) : ''}</div>
+      <div class="col-track"><div class="col-bar ${i === 6 ? 'now' : ''}" style="height:${h}%;--c:${color}"></div></div>
+    </div>`;
   }).join('');
-  return `<div class="donut-wrap"><svg viewBox="0 0 100 100" class="donut" role="img" aria-label="Spending by category">
-    ${segs}<text x="50" y="51" text-anchor="middle" class="donut-total">${esc(shortRupees(total))}</text>
-    <text x="50" y="61" text-anchor="middle" class="donut-sub">this month</text></svg></div>`;
+  return `<div class="cols" role="list">${cols}${max === 0 ? '<div class="chart-empty">No data yet this week</div>' : ''}</div>
+    <div class="col-days">${days.map((d, i) => `<span class="${i === 6 ? 'today' : ''}">${weekday(d)}</span>`).join('')}</div>
+    <div class="tip" hidden><strong></strong><span></span></div>`;
+}
+
+function donut(items, total) {
+  const size = 196; const stroke = 22; const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const gap = items.length > 1 ? 3 : 0; // surface gap between segments
+  let offset = 0;
+  const segs = items.map((it, i) => {
+    const len = (it.total / total) * c;
+    const seg = `<circle class="donut-seg" tabindex="0" data-i="${i}" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none"
+      stroke="${it.color}" stroke-width="${stroke}" stroke-dasharray="${Math.max(len - gap, 0.5)} ${c}"
+      stroke-dashoffset="${-offset}" transform="rotate(-90 ${size / 2} ${size / 2})"
+      aria-label="${esc(it.name)}: ${esc(rupees(it.total))}"/>`;
+    offset += len;
+    return seg;
+  }).join('');
+  return `<div class="donut-wrap"><svg viewBox="0 0 ${size} ${size}">${segs}</svg>
+    <div class="donut-center"><strong class="num">${esc(shortRupees(total))}</strong><span>this month</span></div></div>`;
+}
+
+function tierFor(score) {
+  if (score >= 80) return { label: 'Strong day', color: 'var(--good)', icon: 'check' };
+  if (score >= 45) return { label: 'On track', color: 'var(--warning)', icon: 'up' };
+  return { label: 'Just getting started', color: 'var(--text-3)', icon: 'bolt' };
 }
 
 function streak(workouts) {
@@ -144,95 +247,150 @@ function streak(workouts) {
   return n;
 }
 
-function greeting() {
-  const h = new Date().getHours();
-  return h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-}
+const head = (eyebrow, title, actions = '') => `
+  <header class="head"><div><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(title)}</h1></div>
+  <div class="head-actions">${actions}</div></header>`;
 
-function budgetCard(spent, budget, extra = '') {
-  const pct = budget > 0 ? spent / budget : 0;
-  const cls = pct > 1 ? 'red' : pct > 0.8 ? 'orange' : 'green';
-  const msg = pct > 1 ? `⚠️ Over budget by ${rupees(spent - budget)}`
-    : pct > 0.8 ? `Heads up: ${Math.round(pct * 100)}% of your budget used`
-      : `${rupees(budget - spent)} left this month`;
-  const msgCls = pct > 1 ? 'text-red' : pct > 0.8 ? 'text-orange' : 'muted';
-  return `<div class="big">${rupees(spent)} <span class="muted">of ${rupees(budget)}</span></div>
-    ${progress(pct, cls)}<p class="small ${msgCls}">${msg}</p>${extra}`;
-}
+const settingsBtn = `<button class="icon-btn press" data-action="settings" aria-label="Settings">${icon('settings', 20)}</button>`;
+const addBtn = (action, label) => `<button class="icon-btn accent press" data-action="${action}" aria-label="${esc(label)}">${icon('plus', 20, 2.2)}</button>`;
+
+const emptyState = (iconName, text) => `<div class="empty">${icon(iconName, 28, 1.5)}${esc(text)}</div>`;
 
 const sortedGoals = () => [...data().goals].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
-const goalProgress = (g) => (g.target > 0 ? Math.max(0, Math.min(g.current / g.target, 1)) : 0);
+const goalProgress = (g) => (g.target > 0 ? clamp01(g.current / g.target) : 0);
 
 /* ================= Views ================= */
 
-function homeView() {
+function todayView() {
   const d = data();
-  const s = d.settings;
+  const s = settings();
   const days = last7();
-  const workedToday = d.workouts.some((w) => isToday(w.at));
-  const spentToday = sum(d.expenses.filter((e) => isToday(e.at)), (e) => e.amount);
-  const spentMonth = sum(d.expenses.filter((e) => sameMonth(e.at, Date.now())), (e) => e.amount);
+  const minsToday = sum(d.workouts.filter((w) => isToday(w.at)), (w) => w.minutes);
   const waterToday = sum(d.water.filter((w) => isToday(w.at)), (w) => w.ml);
+  const spentToday = sum(d.expenses.filter((e) => isToday(e.at)), (e) => e.amount);
+  const allowance = s.budget / daysInMonth();
+
+  const trainP = clamp01(minsToday / s.trainGoal);
+  const waterP = clamp01(waterToday / s.waterGoal);
+  const moneyP = spentToday <= allowance ? 1 : clamp01(1 - (spentToday - allowance) / allowance);
+  const score = Math.round(100 * (0.4 * trainP + 0.35 * waterP + 0.25 * moneyP));
+  const hits = [trainP >= 1, waterP >= 1, spentToday <= allowance].filter(Boolean).length;
+  const tier = tierFor(score);
+  const overToday = spentToday > allowance;
+
   const mins = days.map((day) => sum(d.workouts.filter((w) => sameDay(w.at, day)), (w) => w.minutes));
   const spend = days.map((day) => sum(d.expenses.filter((e) => sameDay(e.at, day)), (e) => e.amount));
+  const st = streak(d.workouts);
+  const dateLabel = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  const metric = (tab, label, iconName, color, frac, value, of) => `
+    <button class="metric press" data-tab="${tab}" style="--c:${color}" aria-label="${esc(label)}: ${esc(value)} ${esc(of)}">
+      <div class="ring">${dial(frac, color, { size: 58, stroke: 6, gradient: false, id: tab })}<div class="ring-icon">${icon(iconName, 18)}</div></div>
+      <div class="metric-value num">${esc(value)}</div>
+      <div class="metric-of">${esc(of)}</div>
+      <div class="metric-label">${esc(label)}</div>
+    </button>`;
 
   return `
-    <div class="grid2">
-      ${stat('🏃', 'Workout today', workedToday ? 'Done ✅' : 'Not yet')}
-      ${(() => { const n = streak(d.workouts); return stat('🔥', 'Workout streak', `${n} ${n === 1 ? 'day' : 'days'}`); })()}
-      ${stat('💸', 'Spent today', rupees(spentToday))}
-      ${stat('💧', 'Water today', `${waterToday} / ${s.waterGoal} ml`)}
-    </div>
-    <div class="quick">
-      <button class="quick-btn orange" data-action="add-workout">＋ Workout</button>
-      <button class="quick-btn green" data-action="add-expense">＋ Expense</button>
-      <button class="quick-btn blue" data-action="water-add" data-ml="250">💧 250 ml</button>
-    </div>
-    <section class="card"><h3>This month's budget</h3>${budgetCard(spentMonth, s.budget)}</section>
-    <section class="card"><h3>Workout minutes · last 7 days</h3>${bars(mins, days, 'orange', (v) => v)}</section>
-    <section class="card"><h3>Spending · last 7 days</h3>${bars(spend, days, 'green', shortRupees)}</section>
-    ${d.goals.length ? `<section class="card"><h3>Goals</h3>${sortedGoals().map((g) => `
-      <div class="goal"><div class="goal-top"><span>${esc(g.title)}</span><span class="muted">${Math.round(goalProgress(g) * 100)}%</span></div>
-      ${progress(goalProgress(g), g.type === 'Money' ? 'green' : 'orange')}</div>`).join('')}</section>` : ''}`;
+    ${head(dateLabel, 'Today', settingsBtn)}
+    <div class="stack">
+      <section class="card hero" style="--glow:color-mix(in srgb, ${tier.color} 35%, transparent)">
+        <div class="eyebrow">Day score</div>
+        <div class="dial-wrap">${dial(score / 100, tier.color === 'var(--text-3)' ? 'var(--text-2)' : tier.color, { id: 'score' })}
+          <div class="dial-center">
+            <div class="hero-num">${score}</div>
+            <div class="tier" style="--tier:${tier.color}">${icon(tier.icon, 14, 2.4)}${esc(tier.label)}</div>
+          </div>
+        </div>
+        <p class="hero-sub">${hits} of 3 daily targets hit${st > 1 ? ` · ${st}-day training streak` : ''}</p>
+      </section>
+
+      <div class="metrics">
+        ${metric('train', 'Train', 'train', 'var(--train)', trainP, `${minsToday}`, `of ${s.trainGoal} min`)}
+        ${metric('water', 'Hydrate', 'water', 'var(--water)', waterP, `${litres(waterToday)} L`, `of ${litres(s.waterGoal)} L`)}
+        ${metric('money', overToday ? 'Over' : 'Spent', 'money', overToday ? 'var(--critical)' : 'var(--money)', clamp01(spentToday / allowance), shortRupees(spentToday), `of ${shortRupees(allowance)}/day`)}
+      </div>
+
+      <div class="quick">
+        <button class="press" data-action="add-workout" style="--c:var(--train)">${icon('plus', 16, 2.4)}Workout</button>
+        <button class="press" data-action="add-expense" style="--c:var(--money)">${icon('plus', 16, 2.4)}Expense</button>
+        <button class="press" data-action="water-add" data-ml="250" style="--c:var(--water)">${icon('water', 16, 2.2)}250 ml</button>
+      </div>
+
+      <section class="card">
+        <div class="card-head"><div class="card-title">Training minutes</div><div class="card-sub">Last 7 days</div></div>
+        ${columns(mins, days, 'var(--train)', (v) => `${v}`, 'min')}
+      </section>
+
+      <section class="card">
+        <div class="card-head"><div class="card-title">Spending</div><div class="card-sub">Last 7 days</div></div>
+        ${columns(spend, days, 'var(--money)', shortRupees, '')}
+      </section>
+
+      ${d.goals.length ? `<section class="card">
+        <div class="card-head"><div class="card-title">Goals</div>
+          <button class="text-btn" data-tab="goals">See all</button></div>
+        ${sortedGoals().slice(0, 3).map((g) => `
+          <div class="goal-mini"><div class="goal-mini-top"><span>${esc(g.title)}</span>
+            <span class="num muted">${Math.round(goalProgress(g) * 100)}%</span></div>
+            ${meter(goalProgress(g), goalColor(g))}</div>`).join('')}
+      </section>` : ''}
+    </div>`;
 }
 
-function workoutView() {
+function trainView() {
   const ws = [...data().workouts].sort((a, b) => b.at - a.at);
   const week = ws.filter((w) => sameWeek(w.at));
   const best = {};
   for (const w of ws) {
     for (const e of w.exercises ?? []) {
       if (!(e.kg > 0)) continue;
-      const key = clean(e.name).toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+      const key = clean(e.name).toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase());
       best[key] = Math.max(best[key] ?? 0, e.kg);
     }
   }
-  const pbs = Object.entries(best).sort(([a], [b]) => a.localeCompare(b));
+  const pbs = Object.entries(best).sort((a, b) => b[1] - a[1]);
+  const days = last7();
 
   return `
-    <section class="card">
-      <h3>This week</h3>
-      <div class="summary">
-        <div><b>${week.length}</b><span>sessions</span></div>
-        <div><b>${sum(week, (w) => w.minutes)}</b><span>minutes</span></div>
-        <div><b>${sum(week, (w) => w.calories)}</b><span>kcal</span></div>
+    ${head('This week', 'Train', addBtn('add-workout', 'Log workout'))}
+    <div class="stack">
+      <div class="stats">
+        <div class="stat"><div class="stat-value num">${week.length}</div><div class="stat-label">Sessions</div></div>
+        <div class="stat"><div class="stat-value num">${sum(week, (w) => w.minutes)}</div><div class="stat-label">Active min</div></div>
+        <div class="stat"><div class="stat-value num">${sum(week, (w) => w.calories).toLocaleString('en-IN')}</div><div class="stat-label">Calories</div></div>
       </div>
-      <div class="dots">${last7().map((day) => {
-        const done = ws.some((w) => sameDay(w.at, day));
-        return `<div class="dot-col"><div class="dot ${done ? 'done' : ''}">${done ? '✓' : ''}</div><span>${weekday(day)}</span></div>`;
-      }).join('')}</div>
-    </section>
-    <button class="primary orange-bg" data-action="add-workout">＋ Log workout</button>
-    ${pbs.length ? `<section class="card"><h3>Personal bests 🏆</h3>${pbs.map(([name, kg]) => `
-      <div class="row"><span>${esc(name)}</span><b>${kg} kg</b></div>`).join('')}</section>` : ''}
-    <section class="card list"><h3>History</h3>
-      ${ws.length ? ws.map((w) => `
-        <button class="item" data-action="workout-open" data-id="${esc(w.id)}">
-          <span class="item-icon">${typeIcon(w.type)}</span>
-          <span class="item-main"><b>${esc(w.type)}</b><small>${fmtDate(w.at)} · ${fmtTime(w.at)}</small></span>
-          <span class="item-end"><b>${w.minutes} min</b><small>${esc(w.intensity)}</small></span>
-        </button>`).join('') : '<p class="muted">No workouts yet. Log your first one 💪</p>'}
-    </section>`;
+
+      <section class="card">
+        <div class="card-head"><div class="card-title">Last 7 days</div>
+          <div class="card-sub">${icon('flame', 14)}</div></div>
+        <div class="week">${days.map((day, i) => {
+          const done = ws.some((w) => sameDay(w.at, day));
+          return `<div class="day"><div class="day-box ${done ? 'done' : ''} ${i === 6 ? 'today' : ''}">${done ? icon('check', 16, 2.6) : ''}</div>
+            <span class="${i === 6 ? 'today' : ''}">${weekday(day)}</span></div>`;
+        }).join('')}</div>
+      </section>
+
+      <button class="btn tint press" style="--c:var(--train)" data-action="add-workout">${icon('plus', 18, 2.4)}Log workout</button>
+
+      ${pbs.length ? `<section class="card">
+        <div class="card-head"><div class="card-title">Personal bests</div><div class="card-sub">${icon('trophy', 16)}</div></div>
+        ${pbs.map(([name, kg]) => `<div class="row"><div class="tile-icon" style="--c:var(--warning)">${icon('trophy', 18)}</div>
+          <div class="row-main"><div class="row-title">${esc(name)}</div><div class="row-sub">Heaviest set</div></div>
+          <div class="row-end"><strong>${kg} kg</strong></div></div>`).join('')}
+      </section>` : ''}
+
+      <section class="card">
+        <div class="card-head"><div class="card-title">History</div><div class="card-sub">${ws.length} total</div></div>
+        ${ws.length ? ws.map((w) => `
+          <button class="row press" data-action="workout-open" data-id="${esc(w.id)}">
+            <div class="tile-icon" style="--c:var(--train)">${icon(typeIcon(w.type), 20)}</div>
+            <div class="row-main"><div class="row-title">${esc(w.type)}</div>
+              <div class="row-sub">${fmtDay(w.at)} · ${fmtTime(w.at)}</div></div>
+            <div class="row-end"><strong>${w.minutes} min</strong><span>${esc(w.intensity)}</span></div>
+          </button>`).join('') : emptyState('train', 'No workouts yet. Log your first one.')}
+      </section>
+    </div>`;
 }
 
 function moneyView() {
@@ -241,44 +399,67 @@ function moneyView() {
   const isCurrent = sameMonth(moneyMonth, Date.now());
   const list = d.expenses.filter((e) => sameMonth(e.at, moneyMonth)).sort((a, b) => b.at - a.at);
   const total = sum(list, (e) => e.amount);
+  const pct = budget > 0 ? total / budget : 0;
+  const status = pct > 1 ? { label: 'Over budget', color: 'var(--critical)', icon: 'alert' }
+    : pct > 0.8 ? { label: 'Close to limit', color: 'var(--warning)', icon: 'alert' }
+      : { label: 'Within budget', color: 'var(--good)', icon: 'check' };
+  const daysLeft = isCurrent ? daysInMonth() - new Date().getDate() + 1 : 0;
+  const perDay = isCurrent && budget > total ? (budget - total) / daysLeft : 0;
   const byCat = CATEGORIES
     .map((c) => ({ ...c, total: sum(list.filter((e) => cat(e.category).name === c.name), (e) => e.amount) }))
-    .filter((c) => c.total > 0)
-    .sort((a, b) => b.total - a.total);
-
-  const extra = isCurrent ? `<div class="mini">
-      <div><b>${rupees(sum(d.expenses.filter((e) => isToday(e.at)), (e) => e.amount))}</b><span>Today</span></div>
-      <div><b>${rupees(sum(d.expenses.filter((e) => sameWeek(e.at)), (e) => e.amount))}</b><span>This week</span></div>
-    </div>` : '';
+    .filter((c) => c.total > 0);
+  const monthName = moneyMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 
   let lastDay = '';
   const rows = list.map((e) => {
-    const day = fmtLongDate(e.at);
-    const head = day !== lastDay ? `<p class="day-head">${esc(isToday(e.at) ? 'Today' : day)}</p>` : '';
+    const day = isToday(e.at) ? 'Today' : fmtLongDate(e.at);
+    const groupHead = day !== lastDay ? `<div class="list-group-title">${esc(day)}</div>` : '';
     lastDay = day;
-    return `${head}<button class="item" data-action="expense-open" data-id="${esc(e.id)}">
-      <span class="item-icon">${cat(e.category).icon}</span>
-      <span class="item-main"><b>${esc(e.note || e.category)}</b><small>${esc(e.category)} · ${esc(e.payment)} · ${fmtTime(e.at)}</small></span>
-      <span class="item-end"><b>${rupees(e.amount)}</b></span></button>`;
+    const c = cat(e.category);
+    return `${groupHead}<button class="row press" data-action="expense-open" data-id="${esc(e.id)}">
+      <div class="tile-icon" style="--c:${c.color}">${icon(c.icon, 19)}</div>
+      <div class="row-main"><div class="row-title">${esc(e.note || e.category)}</div>
+        <div class="row-sub">${esc(e.category)} · ${esc(e.payment)} · ${fmtTime(e.at)}</div></div>
+      <div class="row-end"><strong>${rupees(e.amount)}</strong></div></button>`;
   }).join('');
 
   return `
-    <section class="card">
-      <div class="month-nav">
-        <button data-action="month-prev" aria-label="Previous month">‹</button>
-        <h3 style="margin:0">${moneyMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</h3>
-        <button data-action="month-next" aria-label="Next month" ${isCurrent ? 'disabled' : ''}>›</button>
-      </div>
-      ${budgetCard(total, budget, extra)}
-    </section>
-    <button class="primary green-bg" data-action="add-expense">＋ Add expense</button>
-    ${byCat.length ? `<section class="card"><h3>Where your money went</h3>${donut(byCat)}
-      ${byCat.map((c) => `<div class="row"><span><span class="swatch" style="background:${c.color}"></span>${c.icon} ${esc(c.name)}</span>
-        <span><b>${rupees(c.total)}</b> <span class="muted small">${Math.round((c.total / total) * 100)}%</span></span></div>`).join('')}
-    </section>` : ''}
-    <section class="card list"><h3>Expenses</h3>
-      ${rows || '<p class="muted">Nothing spent this month yet.</p>'}
-    </section>`;
+    ${head(isCurrent ? 'This month' : 'History', 'Money', addBtn('add-expense', 'Add expense'))}
+    <div class="stack">
+      <section class="card">
+        <div class="card-head">
+          <button class="icon-btn press" data-action="month-prev" aria-label="Previous month">${icon('left', 18)}</button>
+          <div class="card-title">${esc(monthName)}</div>
+          <button class="icon-btn press" data-action="month-next" aria-label="Next month" ${isCurrent ? 'disabled style="opacity:.3"' : ''}>${icon('right', 18)}</button>
+        </div>
+        <div class="eyebrow">Spent</div>
+        <div class="hero-num num" style="font-size:48px;margin:6px 0 14px">${rupees(total)}</div>
+        ${meter(pct, pct > 1 ? 'var(--critical)' : 'var(--money)')}
+        <div class="goal-meta" style="margin-top:12px">
+          <span class="status" style="--s:${status.color}">${icon(status.icon, 15, 2.2)}${status.label}</span>
+          <span class="num">Budget ${rupees(budget)}</span>
+        </div>
+        ${isCurrent ? `<div class="stats" style="margin-top:16px">
+          <div class="stat"><div class="stat-value num" style="font-size:18px">${shortRupees(sum(d.expenses.filter((e) => isToday(e.at)), (e) => e.amount))}</div><div class="stat-label">Today</div></div>
+          <div class="stat"><div class="stat-value num" style="font-size:18px">${shortRupees(sum(d.expenses.filter((e) => sameWeek(e.at)), (e) => e.amount))}</div><div class="stat-label">This week</div></div>
+          <div class="stat"><div class="stat-value num" style="font-size:18px">${shortRupees(perDay)}</div><div class="stat-label">Per day left</div></div>
+        </div>` : ''}
+      </section>
+
+      ${byCat.length ? `<section class="card">
+        <div class="card-head"><div class="card-title">By category</div><div class="card-sub">${byCat.length} ${byCat.length === 1 ? 'category' : 'categories'}</div></div>
+        ${donut(byCat, total)}
+        ${[...byCat].sort((a, b) => b.total - a.total).map((c) => `<div class="legend-row">
+          <span class="swatch" style="background:${c.color}"></span><span>${esc(c.name)}</span>
+          <strong class="num">${rupees(c.total)}</strong>
+          <span class="num faint small" style="text-align:right">${Math.round((c.total / total) * 100)}%</span></div>`).join('')}
+      </section>` : ''}
+
+      <section class="card">
+        <div class="card-head"><div class="card-title">Transactions</div><div class="card-sub">${list.length}</div></div>
+        ${rows || emptyState('money', 'Nothing spent this month yet.')}
+      </section>
+    </div>`;
 }
 
 function waterView() {
@@ -286,78 +467,101 @@ function waterView() {
   const goal = d.settings.waterGoal;
   const today = d.water.filter((w) => isToday(w.at)).sort((a, b) => b.at - a.at);
   const total = sum(today, (w) => w.ml);
-  const frac = goal > 0 ? Math.min(total / goal, 1) : 0;
-  const r = 42;
-  const c = 2 * Math.PI * r;
+  const frac = goal > 0 ? total / goal : 0;
+  const left = Math.max(goal - total, 0);
 
   return `
-    <section class="card">
-      <div class="ring-wrap"><svg viewBox="0 0 100 100" class="ring" role="img" aria-label="${total} of ${goal} ml">
-        <circle class="ring-track" r="${r}" cx="50" cy="50" fill="none" stroke-width="9"/>
-        <circle class="ring-fill" r="${r}" cx="50" cy="50" fill="none" stroke-width="9" stroke-linecap="round"
-          stroke-dasharray="${frac * c} ${c}" transform="rotate(-90 50 50)"/>
-        <text x="50" y="48" text-anchor="middle" class="ring-big">${total} ml</text>
-        <text x="50" y="60" text-anchor="middle" class="ring-small">${total >= goal ? 'Goal reached 🎉' : `of ${goal} ml`}</text>
-      </svg></div>
-      <div class="water-btns">
-        <button data-action="water-add" data-ml="150">+150</button>
-        <button data-action="water-add" data-ml="250">+250</button>
-        <button data-action="water-add" data-ml="500">+500</button>
-        <button data-action="water-custom">Other</button>
-      </div>
-    </section>
-    <section class="card">
-      <h3>Daily goal</h3>
-      <div class="stepper">
-        <button data-action="water-goal" data-step="-250" aria-label="Decrease goal">−</button>
-        <b>${goal} ml</b>
-        <button data-action="water-goal" data-step="250" aria-label="Increase goal">＋</button>
-      </div>
-    </section>
-    <section class="card">
-      <h3>⏰ Reminders</h3>
-      <p class="muted" style="margin:0 0 10px">Get a “drink water” alert on your iPhone every day, even when this app is closed. It uses the free Shortcuts app on your phone.</p>
-      <button class="secondary" data-action="water-reminders">How to set up reminders</button>
-    </section>
-    <section class="card list"><h3>Today</h3>
-      ${today.length ? today.map((w) => `
-        <div class="row"><span>💧 ${w.ml} ml</span>
-        <span><span class="muted">${fmtTime(w.at)}</span>
-        <button class="x-btn" data-action="water-del" data-id="${esc(w.id)}" aria-label="Remove">✕</button></span></div>`).join('')
-        : '<p class="muted">No water logged yet today.</p>'}
-    </section>`;
+    ${head('Today', 'Hydrate', settingsBtn)}
+    <div class="stack">
+      <section class="card hero" style="--glow:color-mix(in srgb, var(--water) 40%, transparent)">
+        <div class="eyebrow">Water intake</div>
+        <div class="dial-wrap">${dial(frac, 'var(--water)', { id: 'water' })}
+          <div class="dial-center">
+            <div class="hero-num num">${litres(total)}<span style="font-size:24px;letter-spacing:-0.02em"> L</span></div>
+            <div class="hero-unit">of ${litres(goal)} L goal</div>
+            ${total >= goal ? `<div class="tier" style="--tier:var(--good)">${icon('check', 14, 2.4)}Goal reached</div>` : ''}
+          </div>
+        </div>
+        <p class="hero-sub">${total >= goal ? 'Great job. Keep sipping through the day.' : `${left.toLocaleString('en-IN')} ml to go`}</p>
+        <div class="water-btns">
+          <button class="press" data-action="water-add" data-ml="150">+150</button>
+          <button class="press" data-action="water-add" data-ml="250">+250</button>
+          <button class="press" data-action="water-add" data-ml="500">+500</button>
+          <button class="press" data-action="water-custom">Other</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="stepper">
+          <div><div class="card-title">Daily goal</div><div class="card-sub">Adjust in 250 ml steps</div></div>
+          <div class="stepper-ctrl">
+            <button class="press" data-action="water-goal" data-step="-250" aria-label="Decrease goal">${icon('minus', 18, 2.2)}</button>
+            <strong class="num">${litres(goal)} L</strong>
+            <button class="press" data-action="water-goal" data-step="250" aria-label="Increase goal">${icon('plus', 18, 2.2)}</button>
+          </div>
+        </div>
+      </section>
+
+      <button class="row card press" data-action="water-reminders" style="padding:16px 18px">
+        <div class="tile-icon" style="--c:var(--water)">${icon('bell', 20)}</div>
+        <div class="row-main"><div class="row-title">Drink reminders</div>
+          <div class="row-sub">Alerts on your iPhone, even when the app is closed</div></div>
+        <div class="row-end faint">${icon('right', 18)}</div>
+      </button>
+
+      <section class="card">
+        <div class="card-head"><div class="card-title">Today's log</div><div class="card-sub">${today.length} ${today.length === 1 ? 'entry' : 'entries'}</div></div>
+        ${today.length ? today.map((w) => `
+          <div class="row"><div class="tile-icon" style="--c:var(--water)">${icon('water', 18)}</div>
+            <div class="row-main"><div class="row-title num">${w.ml} ml</div><div class="row-sub">${fmtTime(w.at)}</div></div>
+            <button class="x-btn press" data-action="water-del" data-id="${esc(w.id)}" aria-label="Remove ${w.ml} ml">${icon('x', 18)}</button>
+          </div>`).join('') : emptyState('water', 'No water logged yet today.')}
+      </section>
+    </div>`;
 }
 
 function goalsView() {
   const goals = sortedGoals();
+  const done = goals.filter((g) => goalProgress(g) >= 1).length;
   return `
-    <button class="primary" data-action="goal-add">＋ New goal</button>
-    <section class="card list">
+    ${head(goals.length ? `${done} of ${goals.length} complete` : 'Set your targets', 'Goals', addBtn('goal-add', 'New goal'))}
+    <div class="stack">
       ${goals.length ? goals.map((g) => {
         const p = goalProgress(g);
         const daysLeft = Math.round((startOfDay(g.deadline) - startOfDay()) / 86400000);
-        const icon = g.type === 'Money' ? '💰' : g.type === 'Fitness' ? '💪' : '⭐';
-        return `<button class="goal" data-action="goal-open" data-id="${esc(g.id)}">
-          <div class="goal-top"><span>${icon} ${esc(g.title)}</span>${p >= 1 ? '<span class="text-green">Done 🎉</span>' : `<span class="muted">${Math.round(p * 100)}%</span>`}</div>
-          ${progress(p, g.type === 'Money' ? 'green' : 'orange')}
-          <div class="goal-meta"><span>${esc(goalValue(g.current, g.unit))} of ${esc(goalValue(g.target, g.unit))}</span>
-          <span>${daysLeft > 0 ? `${daysLeft} days left` : daysLeft === 0 ? 'Due today' : 'Deadline passed'}</span></div>
+        const color = goalColor(g);
+        const iconName = g.type === 'Money' ? 'money' : g.type === 'Fitness' ? 'train' : 'goals';
+        return `<button class="card goal-card press" data-action="goal-open" data-id="${esc(g.id)}">
+          <div class="goal-top">
+            <div style="display:flex;gap:12px;align-items:center;min-width:0">
+              <div class="tile-icon" style="--c:${color}">${icon(iconName, 19)}</div>
+              <div class="row-main"><div class="row-title">${esc(g.title)}</div><div class="row-sub">${esc(g.type)}</div></div>
+            </div>
+            <div class="goal-pct num">${Math.round(p * 100)}<span class="faint" style="font-size:15px">%</span></div>
+          </div>
+          <div style="margin-top:16px">${meter(p, color)}</div>
+          <div class="goal-meta"><span class="num">${esc(goalValue(g.current, g.unit))} of ${esc(goalValue(g.target, g.unit))}</span>
+            <span>${p >= 1 ? '<span class="status" style="--s:var(--good)">' + icon('check', 14, 2.4) + 'Done</span>'
+              : daysLeft > 0 ? `${daysLeft} days left` : daysLeft === 0 ? 'Due today' : 'Past deadline'}</span></div>
         </button>`;
-      }).join('') : `<h3>No goals yet</h3><p class="muted" style="margin:0">Ideas: “Lose 5 kg by March”, “Save ₹20,000 this month”, “Work out 20 times this month”.</p>`}
-    </section>`;
+      }).join('') : `<section class="card">${emptyState('goals', 'Ideas: lose 5 kg by March, save ₹20,000 this month, or train 20 times this month.')}
+        <button class="btn press" style="margin-top:14px" data-action="goal-add">${icon('plus', 18, 2.4)}Create a goal</button></section>`}
+    </div>`;
 }
 
-const VIEWS = { home: homeView, workout: workoutView, money: moneyView, water: waterView, goals: goalsView };
+const VIEWS = { today: todayView, train: trainView, money: moneyView, water: waterView, goals: goalsView };
 
 /* ================= Shell & rendering ================= */
 
 function renderShell() {
   app.innerHTML = `
-    <header class="topbar"><h1 id="title"></h1>
-      <button class="icon-btn" data-action="settings" aria-label="Settings">⚙️</button></header>
-    ${store.mode === 'local' ? '<div class="banner">Test mode: data is saved in this browser only.</div>' : ''}
-    <main id="view"></main>
-    <nav class="tabbar">${TABS.map((t) => `<button data-tab="${t.id}"><span class="tab-icon">${t.icon}</span><span>${t.label}</span></button>`).join('')}</nav>
+    <div class="frame">
+      ${store.mode === 'local' ? '<div class="banner">Test mode: data is saved in this browser only.</div>' : ''}
+      <main id="view"></main>
+    </div>
+    <nav class="tabbar" aria-label="Sections">${TABS.map((t) => `
+      <button data-tab="${t.id}" style="--c:${t.color}" aria-label="${t.label}">${icon(t.icon, 22)}<span>${t.label}</span></button>`).join('')}
+    </nav>
     <div id="sheet-root"></div>
     <div id="toast" role="status" aria-live="polite"></div>`;
 }
@@ -367,29 +571,97 @@ function render() {
   const view = document.getElementById('view');
   if (!view) return;
   const tab = TABS.find((t) => t.id === route) ?? TABS[0];
-  document.getElementById('title').textContent = tab.id === 'home' ? greeting() : tab.label;
   view.innerHTML = VIEWS[tab.id]();
-  document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab.id));
+  if (animateNext) {
+    view.classList.remove('view-enter');
+    void view.offsetWidth; // restart the entrance animation
+    view.classList.add('view-enter');
+    runEntryAnimations(view);
+    animateNext = false;
+  }
+  document.querySelectorAll('.tabbar button').forEach((b) => {
+    const on = b.dataset.tab === tab.id;
+    b.classList.toggle('active', on);
+    if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
 }
 
 function go(tab) {
+  if (tab === route) { window.scrollTo({ top: 0, behavior: reduceMotion() ? 'auto' : 'smooth' }); return; }
   route = tab;
+  animateNext = true;
   if (location.hash !== `#${tab}`) history.replaceState(null, '', `#${tab}`);
-  render();
   window.scrollTo(0, 0);
+  render();
 }
+
+/* ================= Chart tooltips (values set with textContent) ================= */
+
+function showTip(col) {
+  const card = col.closest('.card');
+  const tip = card?.querySelector('.tip');
+  if (!tip) return;
+  tip.querySelector('strong').textContent = col.dataset.tip;
+  tip.querySelector('span').textContent = col.dataset.sub;
+  const cr = card.getBoundingClientRect();
+  const r = col.getBoundingClientRect();
+  const bar = col.querySelector('.col-bar').getBoundingClientRect();
+  const x = Math.min(Math.max(r.left + r.width / 2 - cr.left, 50), cr.width - 50);
+  const y = Math.min(bar.top, r.bottom - 24) - cr.top - 8;
+  tip.style.left = `${x}px`;
+  tip.style.top = `${y}px`;
+  tip.hidden = false;
+}
+function hideTips() { document.querySelectorAll('.tip').forEach((t) => { t.hidden = true; }); }
+
+function focusDonut(seg) {
+  const wrap = seg.closest('.donut-wrap');
+  const i = Number(seg.dataset.i);
+  wrap.classList.add('focusing');
+  wrap.querySelectorAll('.donut-seg').forEach((s) => s.classList.toggle('on', Number(s.dataset.i) === i));
+  const label = seg.getAttribute('aria-label').split(': ');
+  wrap.querySelector('.donut-center strong').textContent = label[1];
+  wrap.querySelector('.donut-center span').textContent = label[0];
+}
+function resetDonut(wrap) {
+  if (!wrap) return;
+  wrap.classList.remove('focusing');
+  render();
+}
+
+document.addEventListener('pointerover', (e) => {
+  const col = e.target.closest('.col');
+  if (col) showTip(col); else if (!e.target.closest('.tip')) hideTips();
+  const seg = e.target.closest('.donut-seg');
+  if (seg) focusDonut(seg);
+});
+document.addEventListener('pointerout', (e) => {
+  const seg = e.target.closest('.donut-seg');
+  if (seg && !e.relatedTarget?.closest?.('.donut-seg')) resetDonut(seg.closest('.donut-wrap'));
+});
+document.addEventListener('focusin', (e) => {
+  const col = e.target.closest('.col');
+  if (col) showTip(col);
+  const seg = e.target.closest('.donut-seg');
+  if (seg) focusDonut(seg);
+});
+document.addEventListener('focusout', (e) => { if (e.target.closest('.col')) hideTips(); });
+window.addEventListener('scroll', hideTips, { passive: true });
 
 /* ================= Sheets ================= */
 
-function openSheet(title, body, onSave, saveLabel = 'Save') {
+function openSheet(title, body, onSave, saveLabel = 'Save', accent = 'var(--text)') {
   const root = document.getElementById('sheet-root');
+  root.dataset.open = 'false';
+  root.dataset.closing = 'false';
   root.innerHTML = `
     <div class="backdrop" data-action="sheet-close"></div>
-    <form class="sheet" novalidate autocomplete="off">
+    <form class="sheet" novalidate autocomplete="off" role="dialog" aria-modal="true" aria-label="${esc(title)}" style="--c:${accent}">
+      <div class="grabber"></div>
       <div class="sheet-head">
-        <button type="button" class="link" data-action="sheet-close">${onSave ? 'Cancel' : 'Close'}</button>
+        <button type="button" class="text-btn" data-action="sheet-close">${onSave ? 'Cancel' : 'Close'}</button>
         <h2>${esc(title)}</h2>
-        ${onSave ? `<button type="submit" class="link bold">${esc(saveLabel)}</button>` : '<span></span>'}
+        ${onSave ? `<button type="submit" class="text-btn strong">${esc(saveLabel)}</button>` : '<span></span>'}
       </div>
       <div class="sheet-body">${body}</div>
     </form>`;
@@ -398,35 +670,43 @@ function openSheet(title, body, onSave, saveLabel = 'Save') {
     e.preventDefault();
     if (onSave && onSave(form, new FormData(form)) !== false) closeSheet();
   });
+  requestAnimationFrame(() => requestAnimationFrame(() => { root.dataset.open = 'true'; }));
   return form;
 }
 
 function closeSheet() {
   const root = document.getElementById('sheet-root');
-  if (root) root.innerHTML = '';
+  if (!root || !root.innerHTML) return;
+  root.dataset.closing = 'true';
+  root.dataset.open = 'false';
+  const done = () => { if (root.dataset.open === 'false') { root.innerHTML = ''; root.dataset.closing = 'false'; } };
+  setTimeout(done, reduceMotion() ? 200 : 230);
 }
 
-const radios = (name, options, checked) => `<div class="segmented">${options.map((o) => `
+const seg = (name, options, checked) => `<div class="seg">${options.map((o) => `
   <label><input type="radio" name="${name}" value="${esc(o)}" ${o === checked ? 'checked' : ''}><span>${esc(o)}</span></label>`).join('')}</div>`;
 
-const field = (label, input) => `<div class="field"><label>${label}</label>${input}</div>`;
+const field = (label, input) => `<label class="field"><span>${label}</span>${input}</label>`;
 
 function workoutForm() {
   openSheet('Log workout', `
-    <span class="field-label">Type</span>
+    <span class="label">Activity</span>
     <div class="chips">${WORKOUT_TYPES.map((t, i) => `
-      <label class="chip"><input type="radio" name="type" value="${t.name}" ${i === 0 ? 'checked' : ''}><span>${t.icon} ${t.name}</span></label>`).join('')}</div>
-    <span class="field-label">Details</span>
+      <label class="chip"><input type="radio" name="type" value="${t.name}" ${i === 0 ? 'checked' : ''}><span>${icon(t.icon, 22)}${t.name}</span></label>`).join('')}</div>
+    <span class="label">Session</span>
+    <div class="field-row">
+      ${field('Duration (min)', '<input type="number" name="minutes" inputmode="numeric" value="45" min="1" max="600">')}
+      ${field('Calories', '<input type="number" name="calories" inputmode="numeric" min="0" placeholder="Optional">')}
+    </div>
     ${field('When', `<input type="datetime-local" name="at" value="${toLocalInput(Date.now())}">`)}
-    ${field('Duration (minutes)', '<input type="number" name="minutes" inputmode="numeric" value="45" min="1" max="600">')}
-    ${radios('intensity', INTENSITIES, 'Medium')}
-    <span class="field-label">Exercises (optional)</span>
+    <span class="label">Intensity</span>
+    ${seg('intensity', INTENSITIES, 'Medium')}
+    <span class="label">Exercises</span>
     <div id="exercises"></div>
-    <button type="button" class="secondary" data-action="add-exercise">＋ Add exercise</button>
-    <span class="field-label">Extras (optional)</span>
-    ${field('Calories burned', '<input type="number" name="calories" inputmode="numeric" min="0">')}
-    ${field('Steps', '<input type="number" name="steps" inputmode="numeric" min="0">')}
-    ${field('Notes', '<textarea name="notes" rows="2" maxlength="500"></textarea>')}
+    <button type="button" class="btn ghost press" data-action="add-exercise">${icon('plus', 18, 2.2)}Add exercise</button>
+    <span class="label">More</span>
+    ${field('Steps', '<input type="number" name="steps" inputmode="numeric" min="0" placeholder="Optional">')}
+    ${field('Notes', '<textarea name="notes" rows="2" maxlength="500" placeholder="How did it feel?"></textarea>')}
   `, (form, f) => {
     const exercises = [...form.querySelectorAll('.exercise')].map((row) => ({
       name: clean(row.querySelector('[name=ex-name]').value, 60),
@@ -443,20 +723,22 @@ function workoutForm() {
       steps: Math.max(0, Math.round(num(f.get('steps')))),
       notes: clean(f.get('notes'), 500),
       exercises,
-    }), 'Workout saved 💪');
-  });
+    }), 'Workout saved');
+  }, 'Save', 'var(--train)');
 }
 
 function addExerciseRow() {
   document.getElementById('exercises')?.insertAdjacentHTML('beforeend', `
     <div class="exercise">
-      <input name="ex-name" placeholder="Exercise, e.g. Bench press" maxlength="60">
+      <div class="exercise-top">
+        <input name="ex-name" placeholder="Exercise, e.g. Bench press" maxlength="60" aria-label="Exercise name">
+        <button type="button" class="x-btn" data-action="remove-exercise" aria-label="Remove exercise">${icon('x', 18)}</button>
+      </div>
       <div class="ex-nums">
         <label>Sets<input name="ex-sets" type="number" inputmode="numeric" value="3" min="1"></label>
         <label>Reps<input name="ex-reps" type="number" inputmode="numeric" value="10" min="1"></label>
-        <label>Weight (kg)<input name="ex-kg" type="number" inputmode="decimal" step="0.5" min="0" placeholder="0"></label>
+        <label>kg<input name="ex-kg" type="number" inputmode="decimal" step="0.5" min="0" placeholder="0"></label>
       </div>
-      <button type="button" class="link text-red" data-action="remove-exercise">Remove</button>
     </div>`);
   document.querySelector('#exercises .exercise:last-child input')?.focus();
 }
@@ -464,35 +746,36 @@ function addExerciseRow() {
 function workoutDetail(id) {
   const w = data().workouts.find((x) => x.id === id);
   if (!w) return;
-  openSheet(`${typeIcon(w.type)} ${w.type}`, `
-    <section class="card">
-      <div class="row"><span class="muted">When</span><span>${fmtLongDate(w.at)}, ${fmtTime(w.at)}</span></div>
-      <div class="row"><span class="muted">Duration</span><span>${w.minutes} min</span></div>
-      <div class="row"><span class="muted">Intensity</span><span>${esc(w.intensity)}</span></div>
-      ${w.calories ? `<div class="row"><span class="muted">Calories</span><span>${w.calories} kcal</span></div>` : ''}
-      ${w.steps ? `<div class="row"><span class="muted">Steps</span><span>${w.steps.toLocaleString('en-IN')}</span></div>` : ''}
-    </section>
-    ${(w.exercises ?? []).length ? `<span class="field-label">Exercises</span><section class="card">${w.exercises.map((e) => `
-      <div class="row"><b>${esc(e.name)}</b><span>${e.sets} × ${e.reps}${e.kg ? ` @ ${e.kg} kg` : ''}</span></div>`).join('')}</section>` : ''}
-    ${w.notes ? `<span class="field-label">Notes</span><section class="card">${esc(w.notes)}</section>` : ''}
-    <button type="button" class="danger" data-action="delete" data-col="workouts" data-id="${esc(w.id)}">Delete workout</button>
+  openSheet('Workout', `
+    <div class="detail-hero"><div class="tile-icon" style="--c:var(--train)">${icon(typeIcon(w.type), 28)}</div>
+      <h3>${esc(w.type)}</h3><p class="muted small">${fmtLongDate(w.at)} · ${fmtTime(w.at)}</p></div>
+    <div class="stats">
+      <div class="stat"><div class="stat-value num">${w.minutes}</div><div class="stat-label">Minutes</div></div>
+      <div class="stat"><div class="stat-value">${esc(w.intensity)}</div><div class="stat-label">Intensity</div></div>
+      <div class="stat"><div class="stat-value num">${w.calories || '–'}</div><div class="stat-label">Calories</div></div>
+    </div>
+    ${(w.exercises ?? []).length ? `<span class="label">Exercises</span><section class="card">${w.exercises.map((e) => `
+      <div class="kv"><span>${esc(e.name)}</span><span class="num">${e.sets} × ${e.reps}${e.kg ? ` · ${e.kg} kg` : ''}</span></div>`).join('')}</section>` : ''}
+    ${w.steps ? `<span class="label">Steps</span><section class="card"><div class="kv"><span>Steps</span><span class="num">${w.steps.toLocaleString('en-IN')}</span></div></section>` : ''}
+    ${w.notes ? `<span class="label">Notes</span><section class="card muted">${esc(w.notes)}</section>` : ''}
+    <button type="button" class="btn danger press" style="margin-top:20px" data-action="delete" data-col="workouts" data-id="${esc(w.id)}">${icon('trash', 18)}Delete workout</button>
   `);
 }
 
 function expenseForm() {
   openSheet('Add expense', `
-    <div class="amount"><span>₹</span><input name="amount" inputmode="decimal" placeholder="0" aria-label="Amount" autofocus></div>
-    <span class="field-label">Category</span>
-    <div class="chips grid4">${CATEGORIES.map((c, i) => `
-      <label class="chip"><input type="radio" name="category" value="${c.name}" ${i === 0 ? 'checked' : ''}><span><i>${c.icon}</i>${c.name}</span></label>`).join('')}</div>
-    <span class="field-label">Paid with</span>
-    ${radios('payment', PAYMENTS, 'UPI')}
-    <span class="field-label">Details</span>
+    <div class="amount"><span>₹</span><input name="amount" inputmode="decimal" placeholder="0" aria-label="Amount"></div>
+    <span class="label">Category</span>
+    <div class="chips">${CATEGORIES.map((c, i) => `
+      <label class="chip" style="--c:${c.color}"><input type="radio" name="category" value="${c.name}" ${i === 0 ? 'checked' : ''}><span>${icon(c.icon, 22)}${c.name === 'Entertainment' ? 'Fun' : c.name}</span></label>`).join('')}</div>
+    <span class="label">Paid with</span>
+    ${seg('payment', PAYMENTS, 'UPI')}
+    <span class="label">Details</span>
+    ${field('Note', '<input name="note" maxlength="80" placeholder="e.g. Lunch with friends">')}
     ${field('When', `<input type="datetime-local" name="at" value="${toLocalInput(Date.now())}">`)}
-    ${field('Note (optional)', '<input name="note" maxlength="80" placeholder="e.g. Lunch with friends">')}
   `, (form, f) => {
     const amount = Math.round(num(f.get('amount')) * 100) / 100;
-    if (!(amount > 0)) { toast('Enter an amount first'); form.querySelector('[name=amount]').focus(); return false; }
+    if (!(amount > 0)) { toast('Enter an amount first', true); form.querySelector('[name=amount]').focus(); return false; }
     write(store.add('expenses', {
       at: fromLocalInput(f.get('at')),
       amount,
@@ -500,50 +783,53 @@ function expenseForm() {
       payment: f.get('payment') || 'UPI',
       note: clean(f.get('note'), 80),
     }), `Saved ${rupees(amount)}`);
-  });
-  setTimeout(() => document.querySelector('.amount input')?.focus(), 50);
+  }, 'Save', 'var(--money)');
+  setTimeout(() => document.querySelector('.amount input')?.focus(), 80);
 }
 
 function expenseDetail(id) {
   const e = data().expenses.find((x) => x.id === id);
   if (!e) return;
+  const c = cat(e.category);
   openSheet('Expense', `
+    <div class="detail-hero"><div class="tile-icon" style="--c:${c.color}">${icon(c.icon, 28)}</div>
+      <div class="hero-num num" style="font-size:44px">${rupees(e.amount)}</div>
+      <p class="muted small" style="margin-top:6px">${esc(e.note || e.category)}</p></div>
     <section class="card">
-      <div class="big">${rupees(e.amount)}</div>
-      <div class="row"><span class="muted">Category</span><span>${cat(e.category).icon} ${esc(e.category)}</span></div>
-      <div class="row"><span class="muted">Paid with</span><span>${esc(e.payment)}</span></div>
-      <div class="row"><span class="muted">When</span><span>${fmtLongDate(e.at)}, ${fmtTime(e.at)}</span></div>
-      ${e.note ? `<div class="row"><span class="muted">Note</span><span>${esc(e.note)}</span></div>` : ''}
+      <div class="kv"><span>Category</span><span>${esc(e.category)}</span></div>
+      <div class="kv"><span>Paid with</span><span>${esc(e.payment)}</span></div>
+      <div class="kv"><span>When</span><span>${fmtLongDate(e.at)}, ${fmtTime(e.at)}</span></div>
     </section>
-    <button type="button" class="danger" data-action="delete" data-col="expenses" data-id="${esc(e.id)}">Delete expense</button>
+    <button type="button" class="btn danger press" style="margin-top:20px" data-action="delete" data-col="expenses" data-id="${esc(e.id)}">${icon('trash', 18)}Delete expense</button>
   `);
 }
 
 function waterCustom() {
-  openSheet('Add water', field('Amount (ml)', '<input name="ml" type="number" inputmode="numeric" min="10" max="3000" placeholder="e.g. 300" autofocus>'),
+  openSheet('Add water', `<div class="amount"><input name="ml" type="number" inputmode="numeric" min="10" max="3000" placeholder="300" aria-label="Amount in ml" style="caret-color:var(--water)"><span>ml</span></div>`,
     (form, f) => {
       const ml = Math.round(num(f.get('ml')));
-      if (!(ml > 0 && ml <= 3000)) { toast('Enter between 1 and 3000 ml'); return false; }
-      write(store.add('water', { at: Date.now(), ml }), `Logged ${ml} ml 💧`);
-    }, 'Add');
-  setTimeout(() => document.querySelector('[name=ml]')?.focus(), 50);
+      if (!(ml > 0 && ml <= 3000)) { toast('Enter between 1 and 3000 ml', true); return false; }
+      write(store.add('water', { at: Date.now(), ml }), `Logged ${ml} ml`);
+    }, 'Add', 'var(--water)');
+  setTimeout(() => document.querySelector('[name=ml]')?.focus(), 80);
 }
 
 function remindersHelp() {
   const times = ['8:00 AM', '10:00 AM', '12:00 PM', '2:00 PM', '4:00 PM', '6:00 PM', '8:00 PM'];
-  openSheet('Water reminders', `
-    <p class="muted" style="margin-top:0">Your iPhone's free <b>Shortcuts</b> app can alert you at fixed times every day. Do this once per reminder time (about 1 minute each).</p>
+  openSheet('Drink reminders', `
+    <div class="detail-hero"><div class="tile-icon" style="--c:var(--water)">${icon('bell', 26)}</div>
+      <h3>Set up once, works daily</h3>
+      <p class="muted small" style="margin-top:6px;max-width:320px;margin-inline:auto">Uses the free Shortcuts app on your iPhone. About 1 minute per reminder time.</p></div>
     <ol class="steps">
-      <li>Open the <b>Shortcuts</b> app → tap <b>Automation</b> at the bottom.</li>
-      <li>Tap <b>＋</b> (or <b>New Automation</b>) → choose <b>Time of Day</b>.</li>
-      <li>Set the time (e.g. <b>8:00 AM</b>), choose <b>Daily</b>, and select <b>Run Immediately</b>. Turn <b>off</b> “Notify When Run”. Tap <b>Next</b>.</li>
-      <li>Tap <b>New Blank Automation</b> → <b>Add Action</b> → search <b>Show Notification</b> and add it.</li>
-      <li>Tap the word <b>Hello World!</b> and type: <b>Time to drink water 💧</b> → tap <b>Done</b>.</li>
-      <li>Repeat for your other times.</li>
+      <li>Open <b>Shortcuts</b>, then tap <b>Automation</b> at the bottom.</li>
+      <li>Tap <b>＋</b> (New Automation) and choose <b>Time of Day</b>.</li>
+      <li>Pick a time, choose <b>Daily</b>, select <b>Run Immediately</b>, and turn off <b>Notify When Run</b>. Tap <b>Next</b>.</li>
+      <li>Tap <b>New Blank Automation</b>, then <b>Add Action</b>. Search for <b>Show Notification</b> and add it.</li>
+      <li>Replace “Hello World!” with <b>Time to drink water 💧</b> and tap <b>Done</b>.</li>
+      <li>Repeat for each time below.</li>
     </ol>
-    <span class="field-label">Suggested times</span>
-    <section class="card">${times.map((t) => `<div class="row"><span>⏰ ${t}</span><span class="muted">💧 250 ml</span></div>`).join('')}</section>
-    <p class="muted small">Tip: when the alert comes, open Life Tracker and tap <b>+250</b> to log it.</p>
+    <span class="label">Suggested times</span>
+    <section class="card">${times.map((t) => `<div class="kv"><span>${icon('clock', 16)}</span><span class="num">${t}</span></div>`).join('')}</section>
   `);
 }
 
@@ -551,20 +837,23 @@ function goalForm(id) {
   const g = id ? data().goals.find((x) => x.id === id) : null;
   const deadline = g?.deadline ?? (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.getTime(); })();
   openSheet(g ? 'Update goal' : 'New goal', `
-    ${field('Goal', `<input name="title" maxlength="80" placeholder="e.g. Save for a trip" value="${esc(g?.title ?? '')}">`)}
-    ${radios('type', GOAL_TYPES, g?.type ?? 'Fitness')}
-    <span class="field-label">Target</span>
-    ${field('Target amount', `<input name="target" inputmode="decimal" value="${g ? esc(g.target) : ''}" placeholder="e.g. 20000">`)}
-    ${field('Unit', `<select name="unit">${GOAL_UNITS.map((u) => `<option ${u === (g?.unit ?? 'kg') ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select>`)}
+    <span class="label">Goal</span>
+    ${field('Name', `<input name="title" maxlength="80" placeholder="e.g. Save for a trip" value="${esc(g?.title ?? '')}">`)}
+    ${seg('type', GOAL_TYPES, g?.type ?? 'Fitness')}
+    <span class="label">Target</span>
+    <div class="field-row">
+      ${field('Target', `<input name="target" inputmode="decimal" value="${g ? esc(g.target) : ''}" placeholder="20000">`)}
+      ${field('Unit', `<select name="unit">${GOAL_UNITS.map((u) => `<option ${u === (g?.unit ?? 'kg') ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select>`)}
+    </div>
     ${field('Deadline', `<input type="date" name="deadline" value="${toDateInput(deadline)}">`)}
-    <span class="field-label">Progress so far</span>
+    <span class="label">Progress so far</span>
     ${field('Current', `<input name="current" inputmode="decimal" value="${esc(g?.current ?? 0)}">`)}
-    ${g ? `<button type="button" class="danger" data-action="delete" data-col="goals" data-id="${esc(g.id)}">Delete goal</button>` : ''}
+    ${g ? `<button type="button" class="btn danger press" style="margin-top:20px" data-action="delete" data-col="goals" data-id="${esc(g.id)}">${icon('trash', 18)}Delete goal</button>` : ''}
   `, (form, f) => {
     const title = clean(f.get('title'), 80);
     const target = num(f.get('target'));
-    if (!title) { toast('Give your goal a name'); return false; }
-    if (!(target > 0)) { toast('Enter a target amount'); return false; }
+    if (!title) { toast('Give your goal a name', true); return false; }
+    if (!(target > 0)) { toast('Enter a target amount', true); return false; }
     const values = {
       title,
       type: f.get('type') || 'Other',
@@ -574,33 +863,39 @@ function goalForm(id) {
       deadline: fromLocalInput(`${f.get('deadline')}T23:59`),
     };
     if (g) write(store.update('goals', g.id, values), 'Goal updated');
-    else write(store.add('goals', { ...values, createdAt: Date.now() }), 'Goal added 🎯');
-  });
+    else write(store.add('goals', { ...values, createdAt: Date.now() }), 'Goal added');
+  }, 'Save', 'var(--goal)');
 }
 
 function settingsSheet() {
-  const s = data().settings;
+  const s = settings();
   const user = store.user;
   openSheet('Settings', `
-    <span class="field-label">Money</span>
+    <span class="label">Daily targets</span>
+    <div class="field-row">
+      ${field('Training (min)', `<input name="trainGoal" inputmode="numeric" value="${esc(s.trainGoal)}">`)}
+      ${field('Water (ml)', `<input name="waterGoal" inputmode="numeric" value="${esc(s.waterGoal)}">`)}
+    </div>
     ${field('Monthly budget (₹)', `<input name="budget" inputmode="numeric" value="${esc(s.budget)}">`)}
-    <span class="field-label">Water</span>
-    ${field('Daily water goal (ml)', `<input name="waterGoal" inputmode="numeric" value="${esc(s.waterGoal)}">`)}
-    <span class="field-label">Account</span>
+    <span class="label">Account</span>
     <section class="card">
-      <div class="row"><span class="muted">Signed in as</span><span>${esc(user?.email ?? '—')}</span></div>
-      ${store.mode === 'cloud' ? `<div class="row"><span class="muted">User ID</span><span class="small" style="margin:0;word-break:break-all">${esc(user?.uid)}</span></div>` : ''}
-      <div class="row"><span class="muted">Data saved</span><span>${store.mode === 'cloud' ? '☁️ Your private Firebase database' : '📱 This browser only'}</span></div>
+      <div class="kv"><span>Signed in as</span><span>${esc(user?.email ?? '—')}</span></div>
+      <div class="kv"><span>Storage</span><span>${store.mode === 'cloud' ? 'Private cloud database' : 'This browser only'}</span></div>
+      ${store.mode === 'cloud' ? `<div class="kv"><span>User ID</span><span class="small" style="word-break:break-all;font-weight:500">${esc(user?.uid)}</span></div>` : ''}
     </section>
-    ${store.mode === 'cloud' ? '<button type="button" class="secondary" data-action="copy-uid">Copy my User ID</button>' : ''}
-    <button type="button" class="secondary" data-action="export">Download a backup of my data</button>
-    ${store.mode === 'cloud' ? '<button type="button" class="danger" data-action="signout">Sign out</button>' : ''}
+    <div class="stack" style="margin-top:14px;gap:10px">
+      ${store.mode === 'cloud' ? `<button type="button" class="btn ghost press" data-action="copy-uid">${icon('copy', 18)}Copy my User ID</button>` : ''}
+      <button type="button" class="btn ghost press" data-action="export">${icon('download', 18)}Download a backup</button>
+      ${store.mode === 'cloud' ? `<button type="button" class="btn danger press" data-action="signout">${icon('logout', 18)}Sign out</button>` : ''}
+    </div>
   `, (form, f) => {
     const budget = Math.round(num(f.get('budget')));
     const waterGoal = Math.round(num(f.get('waterGoal')));
-    if (!(budget > 0)) { toast('Enter a budget above ₹0'); return false; }
-    if (!(waterGoal >= 500 && waterGoal <= 8000)) { toast('Water goal should be 500 – 8000 ml'); return false; }
-    write(store.saveSettings({ budget, waterGoal }), 'Settings saved');
+    const trainGoal = Math.round(num(f.get('trainGoal')));
+    if (!(budget > 0)) { toast('Enter a budget above ₹0', true); return false; }
+    if (!(waterGoal >= 500 && waterGoal <= 8000)) { toast('Water goal: 500 to 8000 ml', true); return false; }
+    if (!(trainGoal >= 5 && trainGoal <= 300)) { toast('Training goal: 5 to 300 min', true); return false; }
+    write(store.saveSettings({ budget, waterGoal, trainGoal }), 'Settings saved');
   });
 }
 
@@ -627,8 +922,11 @@ const ACTIONS = {
   'add-expense': () => expenseForm(),
   'expense-open': (el) => expenseDetail(el.dataset.id),
   'month-prev': () => { moneyMonth = new Date(moneyMonth.getFullYear(), moneyMonth.getMonth() - 1, 1); render(); },
-  'month-next': () => { moneyMonth = new Date(moneyMonth.getFullYear(), moneyMonth.getMonth() + 1, 1); render(); },
-  'water-add': (el) => write(store.add('water', { at: Date.now(), ml: Number(el.dataset.ml) }), `Logged ${el.dataset.ml} ml 💧`),
+  'month-next': () => {
+    if (sameMonth(moneyMonth, Date.now())) return;
+    moneyMonth = new Date(moneyMonth.getFullYear(), moneyMonth.getMonth() + 1, 1); render();
+  },
+  'water-add': (el) => write(store.add('water', { at: Date.now(), ml: Number(el.dataset.ml) }), `Logged ${el.dataset.ml} ml`),
   'water-custom': () => waterCustom(),
   'water-del': (el) => write(store.remove('water', el.dataset.id)),
   'water-goal': (el) => {
@@ -644,7 +942,7 @@ const ACTIONS = {
     closeSheet();
   },
   'copy-uid': async () => {
-    try { await navigator.clipboard.writeText(store.user.uid); toast('User ID copied'); } catch { toast('Could not copy. Select it and copy manually.'); }
+    try { await navigator.clipboard.writeText(store.user.uid); toast('User ID copied'); } catch { toast('Copy failed. Select the ID and copy it.', true); }
   },
   'export': () => exportBackup(),
   'signout': async () => { closeSheet(); await store.signOut(); },
@@ -661,6 +959,12 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
+
+// Big amount inputs grow with their digits so the ₹ / ml label stays beside the number.
+const fitAmount = (input) => { input.style.width = `${Math.max(input.value.length, input.placeholder.length, 1) + 0.5}ch`; };
+document.addEventListener('input', (e) => { if (e.target.matches('.amount input')) fitAmount(e.target); });
+new MutationObserver(() => document.querySelectorAll('.amount input').forEach(fitAmount))
+  .observe(document.getElementById('app').parentElement, { childList: true, subtree: true });
 
 window.addEventListener('hashchange', () => {
   const tab = location.hash.slice(1);
@@ -686,18 +990,19 @@ const authMessage = (err) => AUTH_ERRORS[err?.code] ?? err?.message ?? 'Somethin
 function renderLogin(message = '') {
   signedIn = false;
   app.innerHTML = `
-    <div class="login">
-      <div class="login-logo">💪💰💧</div>
-      <h1>Life Tracker</h1>
-      <p class="muted">Sign in to see your data</p>
+    <div class="login view-enter">
+      <img class="brand-mark" src="icons/icon.svg" alt="" width="64" height="64">
+      <h1>Train. Spend.<br>Hydrate.</h1>
+      <p class="lead">One daily score for your workouts, money and water.</p>
       <form id="login-form" novalidate>
-        <div class="field"><label>Email</label><input name="email" type="email" autocomplete="username" inputmode="email" required></div>
-        <div class="field"><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div>
+        <label class="field"><span>Email</span><input name="email" type="email" autocomplete="username" inputmode="email" required></label>
+        <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
         <p class="error" id="login-error">${esc(message)}</p>
-        <button class="primary" type="submit">Sign in</button>
-        <button class="secondary" type="button" id="signup-btn">Create my account</button>
-        <button class="link" type="button" id="reset-btn" style="width:100%;margin-top:8px">Forgot password?</button>
+        <button class="btn press" type="submit">Sign in</button>
+        <button class="btn ghost press" type="button" id="signup-btn">Create my account</button>
+        <button class="text-btn" type="button" id="reset-btn" style="margin-top:12px">Forgot password?</button>
       </form>
+      <div class="login-foot">${icon('lock', 14)}Your data is private to your account.</div>
     </div>
     <div id="toast" role="status" aria-live="polite"></div>`;
 
@@ -733,11 +1038,12 @@ function renderLogin(message = '') {
 
 function handleLinkActions() {
   const params = new URLSearchParams(location.search);
-  const ml = Math.round(num(params.get('water')));
   if (!params.has('water')) return;
+  const ml = Math.round(num(params.get('water')));
   history.replaceState(null, '', `${location.pathname}#water`);
   route = 'water';
-  if (ml > 0 && ml <= 3000) write(store.add('water', { at: Date.now(), ml }), `Logged ${ml} ml 💧`);
+  animateNext = true;
+  if (ml > 0 && ml <= 3000) write(store.add('water', { at: Date.now(), ml }), `Logged ${ml} ml`);
   render();
 }
 
@@ -747,13 +1053,14 @@ async function boot() {
   try {
     store = await createStore(() => render());
   } catch (err) {
-    app.innerHTML = `<div class="login"><h1>Couldn’t start</h1><p class="muted">${esc(err?.message ?? err)}</p>
-      <p class="muted">Check your internet connection and reload.</p></div>`;
+    app.innerHTML = `<div class="login"><h1>Couldn’t start</h1><p class="lead">${esc(err?.message ?? err)}</p>
+      <p class="lead">Check your internet connection and reload.</p></div>`;
     return;
   }
   store.watchUser((user) => {
     if (user) {
       signedIn = true;
+      animateNext = true;
       renderShell();
       render();
       handleLinkActions();
