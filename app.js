@@ -306,6 +306,9 @@ function donut(items, total) {
     <div class="donut-center"><strong class="num">${esc(shortRupees(total))}</strong><span>this month</span></div></div>`;
 }
 
+/** Daily target pill: a check when done, a cross when not (icon + label, never colour alone). */
+const target = (label, done) => `<span class="target ${done ? 'done' : ''}">${icon(done ? 'check' : 'x', 13, 2.6)}${label}<span class="sr-only">${done ? ' done' : ' not done'}</span></span>`;
+
 function tierFor(score) {
   if (score >= 80) return { label: 'Strong day', color: 'var(--good)', icon: 'check' };
   if (score >= 45) return { label: 'On track', color: 'var(--warning)', icon: 'up' };
@@ -379,7 +382,10 @@ function todayView() {
             <div class="tier" style="--tier:${tier.color}">${icon(tier.icon, 14, 2.4)}${esc(tier.label)}</div>
           </div>
         </div>
-        <p class="hero-sub">${hits} of 3 daily targets hit${st > 1 ? ` · ${st}-day training streak` : ''}</p>
+        <div class="targets" aria-label="${hits} of 3 daily targets hit">
+          ${target('Train', trainP >= 1)}${target('Hydrate', waterP >= 1)}${target('Budget', spentToday <= allowance)}
+        </div>
+        ${st > 1 ? `<p class="hero-sub">${st}-day training streak</p>` : ''}
       </section>
 
       <div class="metrics">
