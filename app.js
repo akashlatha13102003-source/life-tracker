@@ -384,8 +384,8 @@ function todayView() {
 
       <div class="metrics">
         ${metric('train', 'Train', 'train', 'var(--train)', trainP, `${minsToday}`, `of ${s.trainGoal} min`)}
-        ${metric('water', 'Hydrate', 'water', 'var(--water)', waterP, `${litres(waterToday)} L`, `of ${litres(s.waterGoal)} L`)}
         ${metric('money', overToday ? 'Over' : 'Spent', 'money', overToday ? 'var(--critical)' : 'var(--money)', clamp01(spentToday / allowance), shortRupees(spentToday), `of ${shortRupees(allowance)}/day`)}
+        ${metric('water', 'Hydrate', 'water', 'var(--water)', waterP, `${litres(waterToday)} L`, `of ${litres(s.waterGoal)} L`)}
       </div>
 
       <div class="quick">
