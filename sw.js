@@ -1,5 +1,5 @@
 // Lets the app open without internet. App files: fresh copy when online, saved copy when offline.
-const CACHE = 'life-tracker-v4';
+const CACHE = 'life-tracker-v5';
 const APP_FILES = [
   './', './index.html', './styles.css', './app.js', './store.js', './firebase-config.js',
   './manifest.webmanifest', './icons/icon.svg', './icons/icon-180.png', './icons/icon-512.png',
@@ -46,4 +46,34 @@ self.addEventListener('fetch', (event) => {
       })
       .catch(() => caches.match(req, { ignoreSearch: true }).then((hit) => hit || caches.match('./index.html'))),
   );
+});
+
+// ---------- Push reminders ----------
+// iPhone requires every push to show a visible notification, so always show one.
+self.addEventListener('push', (event) => {
+  let msg = {};
+  try { msg = event.data ? event.data.json() : {}; } catch { msg = { body: event.data ? event.data.text() : '' }; }
+  event.waitUntil(self.registration.showNotification(msg.title || 'Time to drink water 💧', {
+    body: msg.body || 'A glass of water now keeps you on track.',
+    icon: './icons/icon-180.png',
+    badge: './icons/icon-180.png',
+    tag: msg.tag || 'water',
+    data: { url: msg.url || './#water' },
+  }));
+});
+
+// Tapping a notification opens (or focuses) the app on the Hydrate tab.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || './#water', self.registration.scope).href;
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const win of wins) {
+      if ('focus' in win) {
+        if ('navigate' in win) { try { await win.navigate(target); } catch { /* keep current page */ } }
+        return win.focus();
+      }
+    }
+    return self.clients.openWindow(target);
+  })());
 });
