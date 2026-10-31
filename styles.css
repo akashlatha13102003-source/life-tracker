@@ -655,7 +655,7 @@ svg { display: block; flex: none; }
 .detail-hero h3 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
 .kv { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); font-size: 14px; }
 .kv:first-child { border-top: 0; }
-.kv span:first-child { color: var(--text-2); }
+.kv span:first-child { color: var(--text-2); display: inline-flex; align-items: center; gap: 8px; }
 .kv span:last-child { font-weight: 600; text-align: right; }
 
 .steps { padding-left: 0; list-style: none; counter-reset: s; margin: 0; }
@@ -720,6 +720,131 @@ svg { display: block; flex: none; }
 #toast.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
 #toast svg { color: var(--good); }
 
+/* ---------- Gym session ---------- */
+body.in-session .tabbar { transform: translate(-50%, 140%); pointer-events: none; }
+.tabbar { transition: transform 300ms var(--ease-out); }
+body.in-session .frame { padding-bottom: calc(env(safe-area-inset-bottom) + 40px); }
+
+.live-banner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--train) 40%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--train) 16%, transparent), transparent 70%), var(--surface);
+}
+.live-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--train);
+  flex: none;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--train) 60%, transparent);
+  animation: pulse 1.8s ease-out infinite;
+}
+@keyframes pulse { to { box-shadow: 0 0 0 10px transparent; } }
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 12px;
+  border-radius: 99px;
+  background: var(--train);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.start-card { display: flex; flex-direction: column; gap: 4px; }
+.start-card .row-main { margin-top: 12px; gap: 4px; }
+
+.session-head h1 { font-size: 44px; letter-spacing: -0.04em; }
+
+.ex-card { padding: 16px; }
+.ex-head { display: flex; align-items: flex-start; gap: 8px; }
+.ex-head .row-sub { white-space: normal; }
+.pr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 4px 8px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+}
+.pr-badge svg { color: var(--warning); }
+.set-list { margin-top: 12px; border-top: 1px solid var(--line); }
+.set-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.set-no {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--train) 16%, transparent);
+  font-size: 12px;
+  font-weight: 700;
+}
+.set-val { flex: 1; font-weight: 600; }
+
+.log-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.log-row.cardio { grid-template-columns: 1fr; }
+.num-field > span {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin: 0 0 6px 2px;
+}
+.num-ctrl {
+  display: grid;
+  grid-template-columns: 38px 1fr 38px;
+  align-items: center;
+  height: 52px;
+  padding: 0 6px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+.num-ctrl:focus-within { border-color: color-mix(in srgb, var(--train) 70%, transparent); }
+.num-ctrl button {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--surface-3);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+}
+.num-ctrl input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.log-btn { margin-top: 12px; height: 50px; }
+
+.chips.muscles { grid-template-columns: repeat(3, 1fr); }
+.chips.muscles .chip > span { padding: 16px 4px; font-size: 14px; }
+.custom-ex { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; }
+.ex-pick { padding: 4px 16px; }
+.ex-pick .row:first-child { padding-top: 12px; }
+.ex-pick .row:disabled { opacity: 0.45; }
+.add-ex-btn { border-style: dashed; }
+
 /* ---------- Hover only on real pointers ---------- */
 @media (hover: hover) and (pointer: fine) {
   .quick button:hover, .metric:hover, .row:hover .row-title { filter: brightness(1.12); }
@@ -728,6 +853,8 @@ svg { display: block; flex: none; }
 
 /* ---------- Reduced motion: keep fades, drop movement ---------- */
 @media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+  body.in-session .tabbar { transform: translate(-50%, 0); visibility: hidden; }
   .press:active, .tabbar button:active, .chip > span:active { transform: none; }
   .view-enter { animation: fade-only 200ms ease; }
   .sheet { transition: opacity 200ms ease; transform: none; opacity: 0; }
