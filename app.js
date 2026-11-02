@@ -465,8 +465,8 @@ function trainView() {
       ${pbs.length ? `<section class="card">
         <div class="card-head"><div class="card-title">Personal bests</div>
           <button class="see-all press" data-action="pbs-all">See all ${Object.keys(best).length}</button></div>
-        <div class="pb-strip">${pbs.map(([name, kg]) => `<div class="pb">
-          <div class="pb-kg num">${fmtKg(kg)}<small> kg</small></div><div class="pb-name">${esc(titleCase(name))}</div></div>`).join('')}</div>
+        <div class="pb-strip">${pbs.map(([name, kg]) => `<button class="pb press" data-action="pb-open" data-name="${esc(name)}" aria-label="${esc(titleCase(name))} progress">
+          <div class="pb-kg num">${fmtKg(kg)}<small> kg</small></div><div class="pb-name">${esc(titleCase(name))}</div></button>`).join('')}</div>
       </section>` : ''}
 
       <section class="card">
@@ -510,9 +510,90 @@ function workoutRow(w, details = true) {
 
 function allBestsSheet() {
   const all = Object.entries(bestLifts()).sort((a, b) => b[1] - a[1]);
-  openSheet('Personal bests', `<section class="card">${all.map(([name, kg]) => `<div class="row"><div class="tile-icon" style="--c:var(--warning)">${icon('trophy', 18)}</div>
+  openSheet('Personal bests', `<p class="muted small" style="margin:0 0 12px">Tap an exercise to see your progress.</p>
+    <section class="card">${all.map(([name, kg]) => `<button class="row press" data-action="pb-open" data-name="${esc(name)}"><div class="tile-icon" style="--c:var(--warning)">${icon('trophy', 18)}</div>
     <div class="row-main"><div class="row-title">${esc(titleCase(name))}</div><div class="row-sub">Heaviest set</div></div>
-    <div class="row-end"><strong>${fmtKg(kg)} kg</strong></div></div>`).join('')}</section>`);
+    <div class="row-end"><strong>${fmtKg(kg)} kg</strong></div>${icon('right', 16)}</button>`).join('')}</section>`);
+}
+
+/* ---------- Exercise progress ---------- */
+
+/** Every finished session that included this exercise, oldest first, with its top set. */
+function exerciseHistory(key) {
+  return doneWorkouts().sort((a, b) => a.at - b.at).flatMap((w) => {
+    const e = (w.exercises ?? []).find((x) => normName(x.name) === key);
+    if (!e || isCardio(e)) return [];
+    const sets = exSets(e).filter((s) => s.kg > 0 || s.reps > 0);
+    if (!sets.length) return [];
+    const top = sets.reduce((b, s) => (s.kg > b.kg || (s.kg === b.kg && s.reps > b.reps) ? s : b));
+    return [{ at: w.at, kg: top.kg, reps: top.reps, ex: e, sets, volume: exVolume(e) }];
+  });
+}
+
+/** Step size for y-axis gridlines: 1, 2, 2.5 or 5 × a power of ten. */
+function niceStep(raw) {
+  const p = 10 ** Math.floor(Math.log10(raw || 1));
+  return [1, 2, 2.5, 5, 10].map((m) => m * p).find((s) => s >= raw) ?? 10 * p;
+}
+
+/** Line chart of the heaviest set per session (one series, one axis). */
+function progressChart(pts) {
+  if (pts.length < 2) {
+    return `<div class="pchart-empty">${icon('up', 22, 1.6)}<span>Log this exercise in one more session to see your trend line.</span></div>`;
+  }
+  const W = 320; const H = 170; const L = 36; const R = 14; const T = 16; const B = 26;
+  const kgs = pts.map((p) => p.kg);
+  const span = Math.max(Math.max(...kgs) - Math.min(...kgs), 5);
+  const step = niceStep(span / 3);
+  const lo = Math.max(0, Math.floor((Math.min(...kgs) - step / 2) / step) * step);
+  const hi = Math.ceil((Math.max(...kgs) + step / 4) / step) * step;
+  const x = (i) => L + (i / (pts.length - 1)) * (W - L - R);
+  const y = (v) => T + (1 - (v - lo) / (hi - lo || 1)) * (H - T - B);
+  const ticks = [];
+  for (let v = lo; v <= hi + 1e-9; v += step) ticks.push(Math.round(v * 100) / 100);
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.kg).toFixed(1)}`).join(' ');
+  const area = `${line} L${x(pts.length - 1).toFixed(1)},${H - B} L${x(0).toFixed(1)},${H - B} Z`;
+  const mid = Math.floor((pts.length - 1) / 2);
+  const xLabels = [...new Set([0, pts.length > 4 ? mid : -1, pts.length - 1])].filter((i) => i >= 0);
+  return `<div class="pchart">
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Heaviest set per session, from ${fmtKg(kgs[0])} kg to ${fmtKg(kgs[kgs.length - 1])} kg">
+      <defs><linearGradient id="pfill" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="var(--train)" stop-opacity=".22"/><stop offset="1" stop-color="var(--train)" stop-opacity="0"/></linearGradient></defs>
+      ${ticks.map((t) => `<line class="pgrid" x1="${L}" x2="${W - R}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"/>
+        <text class="paxis" x="${L - 8}" y="${(y(t) + 3.5).toFixed(1)}" text-anchor="end">${fmtKg(t)}</text>`).join('')}
+      ${xLabels.map((i) => `<text class="paxis" x="${x(i).toFixed(1)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === pts.length - 1 ? 'end' : 'middle'}">${esc(new Date(pts[i].at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }))}</text>`).join('')}
+      <path d="${area}" fill="url(#pfill)"/>
+      <path class="pline" d="${line}"/>
+      ${pts.map((p, i) => `<circle class="pdot ${i === pts.length - 1 ? 'last' : ''}" cx="${x(i).toFixed(1)}" cy="${y(p.kg).toFixed(1)}" r="${i === pts.length - 1 ? 5 : 4}"/>`).join('')}
+      ${pts.map((p, i) => `<circle class="pt-hit" tabindex="0" cx="${x(i).toFixed(1)}" cy="${y(p.kg).toFixed(1)}" r="16"
+        data-tip="${esc(`${fmtKg(p.kg)} kg × ${p.reps}`)}" data-sub="${esc(fmtDay(p.at))}"/>`).join('')}
+    </svg>
+    <div class="tip" hidden><strong></strong><span></span></div>
+  </div>`;
+}
+
+function exerciseProgressSheet(key) {
+  const hist = exerciseHistory(key);
+  const pts = hist.filter((h) => h.kg > 0);
+  const best = Math.max(0, ...pts.map((p) => p.kg));
+  const change = pts.length > 1 ? pts[pts.length - 1].kg - pts[0].kg : 0;
+  let running = 0;
+  const rows = hist.map((h) => { const pr = h.kg > running && running > 0; running = Math.max(running, h.kg); return { ...h, pr }; }).reverse();
+  openSheet(titleCase(key), `
+    <div class="stats">
+      <div class="stat"><div class="stat-value num">${fmtKg(best)}<small> kg</small></div><div class="stat-label">Best</div></div>
+      <div class="stat"><div class="stat-value num">${change > 0 ? '+' : ''}${fmtKg(change)}</div><div class="stat-label">Kg since first</div></div>
+      <div class="stat"><div class="stat-value num">${hist.length}</div><div class="stat-label">${hist.length === 1 ? 'Session' : 'Sessions'}</div></div>
+    </div>
+    <section class="card" style="margin-top:12px">
+      <div class="card-head"><div class="card-title">Heaviest set</div><div class="card-sub">Per session</div></div>
+      ${progressChart(pts)}
+    </section>
+    <span class="label">Sessions</span>
+    <section class="card">${rows.map((h) => `<div class="row">
+      <div class="row-main"><div class="row-title">${esc(fmtDay(h.at))}</div><div class="row-sub">${esc(summariseSets(h.ex, h.sets))}</div></div>
+      <div class="row-end">${h.pr ? `<span class="pr-badge">${icon('trophy', 13, 2.2)}PR</span>` : ''}<strong>${fmtKg(h.kg)} kg × ${h.reps}</strong><span>${shortKg(h.volume)} kg total</span></div>
+    </div>`).join('')}</section>`);
 }
 
 const shortKg = (v) => (v >= 10000 ? `${(v / 1000).toFixed(1).replace(/\.0$/, '')}K` : Math.round(v).toLocaleString('en-IN'));
@@ -793,21 +874,26 @@ function go(tab) {
 /* ================= Chart tooltips (values set with textContent) ================= */
 
 function showTip(col) {
-  const card = col.closest('.card');
+  const point = col.classList.contains('pt-hit'); // a dot on the progress line chart
+  const card = col.closest(point ? '.pchart' : '.card');
   const tip = card?.querySelector('.tip');
   if (!tip) return;
   tip.querySelector('strong').textContent = col.dataset.tip;
   tip.querySelector('span').textContent = col.dataset.sub;
   const cr = card.getBoundingClientRect();
   const r = col.getBoundingClientRect();
-  const bar = col.querySelector('.col-bar').getBoundingClientRect();
   const x = Math.min(Math.max(r.left + r.width / 2 - cr.left, 50), cr.width - 50);
-  const y = Math.min(bar.top, r.bottom - 24) - cr.top - 8;
+  const y = point ? r.top + r.height / 2 - cr.top - 12
+    : Math.min(col.querySelector('.col-bar').getBoundingClientRect().top, r.bottom - 24) - cr.top - 8;
+  card.querySelectorAll('.pdot').forEach((d, i) => d.classList.toggle('on', point && i === [...card.querySelectorAll('.pt-hit')].indexOf(col)));
   tip.style.left = `${x}px`;
   tip.style.top = `${y}px`;
   tip.hidden = false;
 }
-function hideTips() { document.querySelectorAll('.tip').forEach((t) => { t.hidden = true; }); }
+function hideTips() {
+  document.querySelectorAll('.tip').forEach((t) => { t.hidden = true; });
+  document.querySelectorAll('.pdot.on').forEach((d) => d.classList.remove('on'));
+}
 
 function focusDonut(seg) {
   const wrap = seg.closest('.donut-wrap');
@@ -825,7 +911,7 @@ function resetDonut(wrap) {
 }
 
 document.addEventListener('pointerover', (e) => {
-  const col = e.target.closest('.col');
+  const col = e.target.closest('.col, .pt-hit');
   if (col) showTip(col); else if (!e.target.closest('.tip')) hideTips();
   const seg = e.target.closest('.donut-seg');
   if (seg) focusDonut(seg);
@@ -835,12 +921,12 @@ document.addEventListener('pointerout', (e) => {
   if (seg && !e.relatedTarget?.closest?.('.donut-seg')) resetDonut(seg.closest('.donut-wrap'));
 });
 document.addEventListener('focusin', (e) => {
-  const col = e.target.closest('.col');
+  const col = e.target.closest('.col, .pt-hit');
   if (col) showTip(col);
   const seg = e.target.closest('.donut-seg');
   if (seg) focusDonut(seg);
 });
-document.addEventListener('focusout', (e) => { if (e.target.closest('.col')) hideTips(); });
+document.addEventListener('focusout', (e) => { if (e.target.closest('.col, .pt-hit')) hideTips(); });
 window.addEventListener('scroll', hideTips, { passive: true });
 
 /* ================= Sheets ================= */
@@ -1381,6 +1467,7 @@ const ACTIONS = {
   'workout-open': (el) => workoutDetail(el.dataset.id),
   'train-day': (el) => { trainDay = Number(el.dataset.day); render(); },
   'pbs-all': () => allBestsSheet(),
+  'pb-open': (el) => exerciseProgressSheet(el.dataset.name),
   'add-expense': () => expenseForm(),
   'expense-open': (el) => expenseDetail(el.dataset.id),
   'month-prev': () => { moneyMonth = new Date(moneyMonth.getFullYear(), moneyMonth.getMonth() - 1, 1); render(); },
