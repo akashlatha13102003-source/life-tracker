@@ -214,6 +214,7 @@ const initialHash = location.hash.slice(1);
 const ROUTES = [...TABS.map((t) => t.id), 'session'];
 let route = ROUTES.includes(initialHash) ? initialHash : (OLD_ROUTES[initialHash] ?? 'today');
 let moneyMonth = new Date();
+let trainDay = null; // day picked in Train → Last 7 days (null = today)
 let animateNext = true;
 // Unsaved kg/reps typed into a session exercise card, kept across re-renders.
 const drafts = {};
@@ -439,6 +440,8 @@ function trainView() {
   const best = bestLifts();
   const pbs = Object.entries(best).sort((a, b) => b[1] - a[1]).slice(0, 8);
   const days = last7();
+  const selDay = days.find((d) => trainDay && sameDay(d, trainDay)) ?? days[6];
+  const dayWs = ws.filter((w) => sameDay(w.at, selDay)).sort((a, b) => a.at - b.at);
   const weekGym = week.filter((w) => w.type === 'Gym');
 
   return `
@@ -459,38 +462,57 @@ function trainView() {
         <div class="stat"><div class="stat-value num">${shortKg(sum(weekGym, workoutVolume))}</div><div class="stat-label">Volume lifted</div></div>
       </div>
 
-      <section class="card">
-        <div class="card-head"><div class="card-title">Last 7 days</div><div class="card-sub">${icon('flame', 14)}</div></div>
-        <div class="week">${days.map((day, i) => {
-          const done = ws.some((w) => sameDay(w.at, day));
-          return `<div class="day"><div class="day-box ${done ? 'done' : ''} ${i === 6 ? 'today' : ''}">${done ? icon('check', 16, 2.6) : ''}</div>
-            <span class="${i === 6 ? 'today' : ''}">${weekday(day)}</span></div>`;
-        }).join('')}</div>
-      </section>
-
       ${pbs.length ? `<section class="card">
-        <div class="card-head"><div class="card-title">Personal bests</div><div class="card-sub">${icon('trophy', 16)}</div></div>
-        ${pbs.map(([name, kg]) => `<div class="row"><div class="tile-icon" style="--c:var(--warning)">${icon('trophy', 18)}</div>
-          <div class="row-main"><div class="row-title">${esc(titleCase(name))}</div><div class="row-sub">Heaviest set</div></div>
-          <div class="row-end"><strong>${fmtKg(kg)} kg</strong></div></div>`).join('')}
+        <div class="card-head"><div class="card-title">Personal bests</div>
+          <button class="see-all press" data-action="pbs-all">See all ${Object.keys(best).length}</button></div>
+        <div class="pb-strip">${pbs.map(([name, kg]) => `<div class="pb">
+          <div class="pb-kg num">${fmtKg(kg)}<small> kg</small></div><div class="pb-name">${esc(titleCase(name))}</div></div>`).join('')}</div>
       </section>` : ''}
 
       <section class="card">
+        <div class="card-head"><div class="card-title">Last 7 days</div><div class="card-sub">Tap a day</div></div>
+        <div class="week">${days.map((day, i) => {
+          const done = ws.some((w) => sameDay(w.at, day));
+          const sel = day === selDay;
+          return `<button class="day press" data-action="train-day" data-day="${day.getTime()}" aria-pressed="${sel}" aria-label="${esc(fmtDay(day))}">
+            <div class="day-box ${done ? 'done' : ''} ${i === 6 ? 'today' : ''} ${sel ? 'sel' : ''}">${done ? icon('check', 16, 2.6) : ''}</div>
+            <span class="${sel ? 'today' : ''}">${weekday(day)}</span></button>`;
+        }).join('')}</div>
+        <div class="day-list">
+          <div class="day-list-head">${selDay === days[6] ? 'Today' : esc(fmtDay(selDay))}</div>
+          ${dayWs.length ? dayWs.map((w) => workoutRow(w)).join('') : '<div class="empty">Rest day · nothing logged</div>'}
+        </div>
+      </section>
+
+      <section class="card">
         <div class="card-head"><div class="card-title">History</div><div class="card-sub">${ws.length} total</div></div>
-        ${ws.length ? ws.map((w) => {
-          const isGym = w.type === 'Gym';
-          const title = isGym && w.muscles?.length ? w.muscles.join(' · ') : w.type;
-          const sub = isGym && (w.exercises ?? []).length
-            ? `${fmtDay(w.at)} · ${plural((w.exercises ?? []).length, "exercise")} · ${plural(workoutSets(w), "set")}`
-            : `${fmtDay(w.at)} · ${fmtTime(w.at)}`;
-          return `<button class="row press" data-action="workout-open" data-id="${esc(w.id)}">
-            <div class="tile-icon" style="--c:var(--train)">${icon(typeIcon(w.type), 20)}</div>
-            <div class="row-main"><div class="row-title">${esc(title)}</div><div class="row-sub">${esc(sub)}</div></div>
-            <div class="row-end"><strong>${w.minutes} min</strong><span>${isGym && workoutVolume(w) ? `${shortKg(workoutVolume(w))} kg` : esc(w.intensity ?? '')}</span></div>
-          </button>`;
-        }).join('') : emptyState('train', 'No workouts yet. Start your first session.')}
+        ${ws.length ? ws.map((w) => workoutRow(w, false)).join('') : emptyState('train', 'No workouts yet. Start your first session.')}
       </section>
     </div>`;
+}
+
+/** One workout row. With details on, gym sessions also list each exercise and its sets. */
+function workoutRow(w, details = true) {
+  const isGym = w.type === 'Gym';
+  const exs = w.exercises ?? [];
+  const title = isGym && w.muscles?.length ? w.muscles.join(' · ') : w.type;
+  const when = details ? fmtTime(w.at) : fmtDay(w.at);
+  const sub = isGym && exs.length
+    ? `${when} · ${plural(exs.length, 'exercise')} · ${plural(workoutSets(w), 'set')}`
+    : details ? when : `${when} · ${fmtTime(w.at)}`;
+  return `<button class="row press" data-action="workout-open" data-id="${esc(w.id)}">
+    <div class="tile-icon" style="--c:var(--train)">${icon(typeIcon(w.type), 20)}</div>
+    <div class="row-main"><div class="row-title">${esc(title)}</div><div class="row-sub">${esc(sub)}</div></div>
+    <div class="row-end"><strong>${w.minutes} min</strong><span>${isGym && workoutVolume(w) ? `${shortKg(workoutVolume(w))} kg` : esc(w.intensity ?? '')}</span></div>
+  </button>${details && exs.length ? `<ul class="ex-lines">${exs.map((e) => `<li>
+    <div class="ex-name">${esc(e.name)}</div><div class="ex-sets num">${esc(summariseSets(e, exSets(e)) || 'No sets logged')}</div></li>`).join('')}</ul>` : ''}`;
+}
+
+function allBestsSheet() {
+  const all = Object.entries(bestLifts()).sort((a, b) => b[1] - a[1]);
+  openSheet('Personal bests', `<section class="card">${all.map(([name, kg]) => `<div class="row"><div class="tile-icon" style="--c:var(--warning)">${icon('trophy', 18)}</div>
+    <div class="row-main"><div class="row-title">${esc(titleCase(name))}</div><div class="row-sub">Heaviest set</div></div>
+    <div class="row-end"><strong>${fmtKg(kg)} kg</strong></div></div>`).join('')}</section>`);
 }
 
 const shortKg = (v) => (v >= 10000 ? `${(v / 1000).toFixed(1).replace(/\.0$/, '')}K` : Math.round(v).toLocaleString('en-IN'));
@@ -1357,6 +1379,8 @@ const ACTIONS = {
     go('train');
   },
   'workout-open': (el) => workoutDetail(el.dataset.id),
+  'train-day': (el) => { trainDay = Number(el.dataset.day); render(); },
+  'pbs-all': () => allBestsSheet(),
   'add-expense': () => expenseForm(),
   'expense-open': (el) => expenseDetail(el.dataset.id),
   'month-prev': () => { moneyMonth = new Date(moneyMonth.getFullYear(), moneyMonth.getMonth() - 1, 1); render(); },
@@ -1402,7 +1426,15 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
 
 // Big amount inputs grow with their digits so the ₹ / ml label stays beside the number.
-const fitAmount = (input) => { input.style.width = `${Math.max(input.value.length, input.placeholder.length, 1) + 0.5}ch`; };
+// Measures the real digit widths (the old "ch" sizing was too narrow on iPhone and hid the first digit).
+const measureCtx = document.createElement('canvas').getContext('2d');
+const fitAmount = (input) => {
+  const cs = getComputedStyle(input);
+  measureCtx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const w = measureCtx.measureText(input.value || input.placeholder || '0').width;
+  input.style.width = `${Math.ceil(w) + 14}px`; // + room for the caret
+};
+document.fonts?.ready.then(() => document.querySelectorAll('.amount input').forEach(fitAmount));
 document.addEventListener('input', (e) => { if (e.target.matches('.amount input')) fitAmount(e.target); });
 new MutationObserver(() => document.querySelectorAll('.amount input').forEach(fitAmount))
   .observe(document.getElementById('app').parentElement, { childList: true, subtree: true });
