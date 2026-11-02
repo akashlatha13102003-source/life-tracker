@@ -402,7 +402,7 @@ svg { display: block; flex: none; }
 
 /* ---------- Week strip ---------- */
 .week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
-.day { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.day { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0; border: 0; background: none; min-width: 0; }
 .day-box {
   width: 100%;
   aspect-ratio: 1;
@@ -418,6 +418,41 @@ svg { display: block; flex: none; }
 .day-box.today:not(.done) { border-color: color-mix(in srgb, var(--train) 60%, transparent); }
 .day span { font-size: 11px; color: var(--text-3); font-weight: 500; }
 .day span.today { color: var(--text); font-weight: 700; }
+.day-box.sel { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
+.day-list { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.day-list-head { font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 2px; }
+.day-list .empty { padding: 10px 0 2px; }
+.ex-lines { list-style: none; margin: -4px 0 8px 52px; padding: 0; display: grid; gap: 8px; }
+.ex-lines li { min-width: 0; }
+.ex-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.ex-sets { margin-top: 1px; font-size: 13px; color: var(--text-2); }
+
+/* ---------- Personal bests strip ---------- */
+.pb-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  margin: 0 -18px;
+  padding: 0 18px 2px;
+  scroll-padding: 0 18px;
+  scrollbar-width: none;
+}
+.pb-strip::-webkit-scrollbar { display: none; }
+.pb {
+  flex: none;
+  width: 112px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  scroll-snap-align: start;
+}
+.pb-kg { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: var(--warning); }
+.pb-kg small { font-size: 12px; font-weight: 600; color: var(--text-3); letter-spacing: 0; }
+.pb-name { margin-top: 4px; font-size: 12px; line-height: 1.3; color: var(--text-2);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.see-all { border: 0; background: none; padding: 4px 0; font-size: 13px; font-weight: 600; color: var(--warning); }
 
 /* ---------- Buttons ---------- */
 .btn {
@@ -605,6 +640,8 @@ svg { display: block; flex: none; }
 .amount span { font-size: 34px; font-weight: 600; color: var(--text-3); }
 .amount input {
   width: 2ch;
+  padding: 0;
+  box-sizing: content-box;
   max-width: 100%;
   border: 0;
   outline: none;
