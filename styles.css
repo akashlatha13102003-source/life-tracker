@@ -922,3 +922,18 @@ body.in-session .frame { padding-bottom: calc(env(safe-area-inset-bottom) + 40px
   #toast { transform: translate(-50%, 0); }
 }
 @keyframes fade-only { from { opacity: 0; } }
+
+/* ---------- Exercise progress chart ---------- */
+.pb { text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.stat-value small { font-size: 12px; font-weight: 600; color: var(--text-3); letter-spacing: 0; }
+.pchart { position: relative; margin: 4px -4px 0; }
+.pchart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.pgrid { stroke: var(--line); stroke-width: 1; }
+.paxis { fill: var(--text-3); font-size: 10px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.pline { fill: none; stroke: var(--train); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.pdot { fill: var(--train); stroke: var(--surface); stroke-width: 2; transition: r 120ms var(--ease-out); }
+.pdot.last { fill: #fff; stroke: var(--train); stroke-width: 2.5; }
+.pdot.on { r: 6; }
+.pt-hit { fill: transparent; cursor: pointer; outline: none; -webkit-tap-highlight-color: transparent; }
+.pchart-empty { display: grid; justify-items: center; gap: 8px; padding: 18px 12px 8px; text-align: center; font-size: 13px; color: var(--text-3); }
+@media (prefers-reduced-motion: reduce) { .pdot { transition: none; } }
