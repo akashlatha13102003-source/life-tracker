@@ -1,7 +1,7 @@
 // Lets the app open without internet. App files: fresh copy when online, saved copy when offline.
-const CACHE = 'life-tracker-v7';
+const CACHE = 'life-tracker-v12';
 const APP_FILES = [
-  './', './index.html', './styles.css', './app.js', './store.js', './firebase-config.js',
+  './', './index.html', './styles.css', './app.js', './store.js', './firebase-config.js', './body-paths.js',
   './manifest.webmanifest', './icons/icon.svg', './icons/icon-180.png', './icons/icon-512.png',
 ];
 
@@ -12,7 +12,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== 'exercise-photos-v1').map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -29,6 +29,15 @@ self.addEventListener('fetch', (event) => {
       caches.open(CACHE).then((c) => c.put(req, copy));
       return res;
     })));
+    return;
+  }
+
+  // Exercise photos never change (pinned version): keep a copy so viewed demos work offline.
+  if (url.origin === 'https://cdn.jsdelivr.net' && url.pathname.startsWith('/gh/yuhonas/free-exercise-db@')) {
+    event.respondWith(caches.open('exercise-photos-v1').then((c) => c.match(req).then((hit) => hit || fetch(req).then((res) => {
+      c.put(req, res.clone());
+      return res;
+    }))));
     return;
   }
 

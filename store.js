@@ -2,16 +2,20 @@
 // otherwise a local "test mode" that saves in this browser only.
 import { firebaseConfig } from './firebase-config.js';
 
-const COLLECTIONS = ['workouts', 'expenses', 'water', 'goals'];
+const COLLECTIONS = ['workouts', 'expenses', 'water', 'goals', 'weights', 'routines', 'exercises'];
 const DEFAULT_SETTINGS = { budget: 20000, waterGoal: 3000, trainGoal: 45 };
 const FIREBASE_VERSION = '10.12.2';
 
 const emptyData = () => ({
-  workouts: [], expenses: [], water: [], goals: [], settings: { ...DEFAULT_SETTINGS },
+  workouts: [], expenses: [], water: [], goals: [], weights: [], routines: [], exercises: [], settings: { ...DEFAULT_SETTINGS },
 });
 
+// A preview running on this computer (localhost) always uses test mode,
+// so trying out changes never touches the real database.
+const isLocalPreview = ['localhost', '127.0.0.1'].includes(location.hostname);
+
 export async function createStore(onChange) {
-  return firebaseConfig && firebaseConfig.apiKey ? cloudStore(onChange) : localStore(onChange);
+  return firebaseConfig && firebaseConfig.apiKey && !isLocalPreview ? cloudStore(onChange) : localStore(onChange);
 }
 
 /* ---------- Test mode: this browser only ---------- */
@@ -37,6 +41,7 @@ function localStore(onChange) {
     watchUser(cb) { cb(this.user); },
     async signIn() {}, async signUp() {}, async resetPassword() {}, async signOut() {},
     async add(col, obj) { data[col].push({ id: newId(), ...obj }); persist(); },
+    async set(col, id, obj) { data[col] = data[col].filter((x) => x.id !== id); data[col].push({ id, ...obj }); persist(); },
     async update(col, id, patch) { const it = data[col].find((x) => x.id === id); if (it) Object.assign(it, patch); persist(); },
     async remove(col, id) { data[col] = data[col].filter((x) => x.id !== id); persist(); },
     async saveSettings(patch) { Object.assign(data.settings, patch); persist(); },
@@ -108,6 +113,8 @@ async function cloudStore(onChange) {
     signOut: () => A.signOut(auth),
 
     add: (name, obj) => F.addDoc(col(name), obj),
+    // Save under an id chosen by the app (works offline, so the id is known straight away).
+    set: (name, id, obj) => F.setDoc(F.doc(db, 'users', uid, name, id), obj),
     update: (name, id, patch) => F.updateDoc(F.doc(db, 'users', uid, name, id), patch),
     remove: (name, id) => F.deleteDoc(F.doc(db, 'users', uid, name, id)),
     saveSettings: (patch) => F.setDoc(userDoc(), { settings: patch }, { merge: true }),

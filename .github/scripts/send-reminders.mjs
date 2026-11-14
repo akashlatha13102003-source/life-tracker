@@ -50,14 +50,20 @@ function dueSlot(r) {
   return due;
 }
 
-function message(total, goal, slot, r) {
+// Water isn't logged in the app any more, so reminders are simple friendly nudges that rotate through the day.
+const NUDGES = [
+  { title: 'Time to drink water 💧', body: 'Start strong: have a full glass now.' },
+  { title: 'Water break 💧', body: 'A glass of water now keeps your energy up.' },
+  { title: 'Stay hydrated 💧', body: 'Quick sip break. Your muscles recover better hydrated.' },
+  { title: 'Time to drink water 💧', body: 'Keep a bottle close and take a few big sips.' },
+  { title: 'Water check 💧', body: 'Thirsty means you’re already behind. Drink a glass.' },
+  { title: 'Hydration reminder 💧', body: 'One more glass before your next meal.' },
+];
+function message(slot, r) {
   const start = toMin(r.start ?? '09:00');
-  const end = toMin(r.end ?? '21:00');
-  const expected = Math.round((goal * Math.min(1, Math.max(0, (slot - start) / Math.max(1, end - start)))) / 50) * 50;
-  const left = Math.max(goal - total, 0);
-  if (total === 0) return { title: 'Time to drink water 💧', body: `Start your day with a glass. Goal: ${litres(goal)} L.` };
-  if (expected - total >= 250) return { title: 'Time to drink water 💧', body: `You're ${expected - total} ml behind. ${litres(total)} of ${litres(goal)} L so far.` };
-  return { title: 'Water break 💧', body: `${litres(total)} of ${litres(goal)} L done, ${left} ml to go. Keep it up!` };
+  const every = Math.max(30, Number(r.every) || 120);
+  const i = Math.max(0, Math.round((slot - start) / every));
+  return NUDGES[i % NUDGES.length];
 }
 
 async function send(subs, payload) {
@@ -99,18 +105,8 @@ for (const doc of users.docs) {
   const slotKey = `${dayKey} ${slot}`;
   if (r.lastSent === slotKey) { console.log(`- ${label(slot)} already sent`); continue; }
 
-  const goal = Number(settings.waterGoal) || 3000;
-  const water = await doc.ref.collection('water').where('at', '>=', dayStartMs).get();
-  const total = water.docs.reduce((s, d) => s + (Number(d.data().ml) || 0), 0);
-
-  if (total >= goal) {
-    console.log(`- ${label(slot)} skipped: goal reached (${total} ml)`);
-    await doc.ref.set({ settings: { reminders: { lastSent: slotKey } } }, { merge: true });
-    continue;
-  }
-
-  console.log(`- ${label(slot)} reminder (${total}/${goal} ml)`);
-  const alive = await send(subs, { ...message(total, goal, slot, r), tag: 'water', url: './#water' });
+  console.log(`- ${label(slot)} reminder`);
+  const alive = await send(subs, { ...message(slot, r), tag: 'water', url: './#today' });
   await doc.ref.set({ settings: { reminders: { lastSent: slotKey, subs: alive, enabled: alive.length > 0 } } }, { merge: true });
 }
 
