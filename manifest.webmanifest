@@ -1,7 +1,7 @@
 {
   "name": "Life Tracker",
   "short_name": "Life Tracker",
-  "description": "Track workouts, spending, water and goals.",
+  "description": "Track workouts, body weight, spending and goals.",
   "start_url": "./#today",
   "scope": "./",
   "display": "standalone",

@@ -3764,8 +3764,8 @@ function renderLogin(message = '') {
   app.innerHTML = `
     <div class="login view-enter">
       <img class="brand-mark" src="icons/icon.svg" alt="" width="64" height="64">
-      <h1>Train. Spend.<br>Hydrate.</h1>
-      <p class="lead">One daily score for your workouts, money and water.</p>
+      <h1>Train. Spend.<br>Stay on target.</h1>
+      <p class="lead">One daily score for your workouts, money and body weight.</p>
       <form id="login-form" novalidate>
         <label class="field"><span>Email</span><input name="email" type="email" autocomplete="username" inputmode="email" required></label>
         <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
