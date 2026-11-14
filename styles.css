@@ -1367,3 +1367,9 @@ body.in-chat .frame { padding-bottom: calc(env(safe-area-inset-bottom) + 96px); 
 .money-left { text-align: right; }
 .money-left .money-num { color: var(--money); }
 .money-left.over .money-num, .money-left.over .eyebrow { color: #ff7b7b; }
+
+/* ---------- Free-mode hand-off buttons ---------- */
+.handoff-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.hbtn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; }
+.hbtn:first-child { background: color-mix(in srgb, var(--goal) 22%, var(--surface-2)); border-color: color-mix(in srgb, var(--goal) 45%, transparent); }
+.copy-box { width: 100%; padding: 12px; border-radius: 14px; border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text); font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }

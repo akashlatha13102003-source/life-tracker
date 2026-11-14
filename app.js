@@ -2302,8 +2302,13 @@ const CHAT_SUGGESTIONS = ['What should I train today?', 'How is my spending this
 function chatBubble(m, i) {
   if (m.role === 'user') return `<div class="msg me"><div class="bubble">${esc(m.text)}</div></div>`;
   const body = m.pending && !m.text ? '<span class="typing"><i></i><i></i><i></i></span>' : mdLite(m.text) + (m.pending ? '<span class="caret"></span>' : '');
+  const app = m.app === 'chatgpt' ? 'ChatGPT' : 'Claude';
+  const actions = m.handoff && m.prompt ? `<div class="handoff-actions">
+      <button type="button" class="hbtn press" data-action="chat-copy" data-i="${i}">${icon('copy', 15, 2)}Copy again</button>
+      <button type="button" class="hbtn press" data-action="chat-open" data-app="${m.app === 'chatgpt' ? 'chatgpt' : 'claude'}">${icon('right', 15, 2.2)}Open ${app}</button>
+    </div>` : '';
   return `<div class="msg ai ${m.error ? 'err' : ''} ${m.handoff ? 'handoff' : ''}" data-msg="${i}">
-    <div class="ai-avatar">${icon(m.handoff ? 'copy' : 'spark', 15, 2)}</div><div class="bubble">${body}</div></div>`;
+    <div class="ai-avatar">${icon(m.handoff ? 'copy' : 'spark', 15, 2)}</div><div class="bubble">${body}${actions}</div></div>`;
 }
 
 function chatView() {
@@ -2358,16 +2363,37 @@ function aiHandoff(text) {
   const copied = navigator.clipboard?.writeText(prompt);
   window.open(isGpt ? 'https://chatgpt.com/' : 'https://claude.ai/new', '_blank', 'noopener');
   chatMsgs.push({ role: 'user', text, at: Date.now() });
-  const note = { role: 'assistant', handoff: true, at: Date.now(), text: `Copied your question **with your data**. In ${isGpt ? 'ChatGPT' : 'Claude'}, tap the message box, choose **Paste**, then send.\n\nWant answers right here instead? Add an API key in the settings above.` };
+  const appName = isGpt ? 'ChatGPT' : 'Claude';
+  const note = {
+    role: 'assistant', handoff: true, at: Date.now(), app: isGpt ? 'chatgpt' : 'claude', prompt,
+    text: `Copied your question **with your data**. In ${appName}, tap and hold the message box, choose **Paste**, then send.\n\nIf Paste doesn't work, tap **Copy again** below.`,
+  };
   chatMsgs.push(note);
   chatDraft = '';
   saveChat();
   render();
   Promise.resolve(copied).catch(() => {
-    note.error = true;
-    note.text = 'Couldn’t copy automatically on this device. Add an API key in the settings above to chat here, or type your question in the app that opened.';
+    note.text = `Couldn’t copy automatically. Tap **Copy again** below, then go back to ${appName} and paste.`;
     saveChat(); refreshLastBubble();
   });
+}
+
+/** Copy a free-mode question again. If the phone blocks copying, show the text to copy by hand. */
+function copyHandoff(i) {
+  const m = chatMsgs[i];
+  if (!m?.prompt) return;
+  const appName = m.app === 'chatgpt' ? 'ChatGPT' : 'Claude';
+  const manual = () => {
+    openSheet('Copy your question', `
+      <p class="muted small" style="margin:0 0 10px">Your phone blocked automatic copying. Tap the text, choose <b>Select All</b>, then <b>Copy</b>, and paste it in ${appName}.</p>
+      <textarea class="copy-box" readonly rows="12">${esc(m.prompt)}</textarea>
+      <button type="button" class="btn tint press" style="--c:var(--goal);margin-top:12px" data-action="chat-open" data-app="${m.app === 'chatgpt' ? 'chatgpt' : 'claude'}">${icon('right', 18, 2.2)}Open ${appName}</button>`);
+    setTimeout(() => { const box = document.querySelector('.copy-box'); box?.focus(); box?.select(); }, 300);
+  };
+  if (!navigator.clipboard?.writeText) { manual(); return; }
+  navigator.clipboard.writeText(m.prompt)
+    .then(() => toast(`Copied. Now paste it in ${appName}`))
+    .catch(manual);
 }
 
 async function sendChat(raw) {
@@ -3569,6 +3595,8 @@ const ACTIONS = {
     if (route === 'chat') render();
   },
   'chat-suggest': (el) => sendChat(el.dataset.q),
+  'chat-copy': (el) => copyHandoff(Number(el.dataset.i)),
+  'chat-open': (el) => window.open(el.dataset.app === 'chatgpt' ? 'https://chatgpt.com/' : 'https://claude.ai/new', '_blank', 'noopener'),
   'chat-new': async () => {
     if (chatBusy || !(await askConfirm({ title: 'Start a new chat?', message: 'This conversation will be cleared from this phone.', yes: 'New chat', danger: false }))) return;
     chatMsgs = []; chatDraft = ''; saveChat(); render();
