@@ -556,13 +556,8 @@ function trainView() {
           <div class="row-main"><div class="row-title">By muscle</div>
             <div class="row-sub">Tap the body</div></div></button>
       </div>
-      ${strongestLiftsCard()}
-      ${pbs.length ? `<section class="card">
-        <div class="card-head"><div class="card-title">Personal bests</div>
-          <button class="see-all press" data-action="pbs-all">See all ${Object.keys(best).length}</button></div>
-        <div class="pb-strip">${pbs.map(([name, kg]) => `<button class="pb press" data-action="pb-open" data-name="${esc(name)}" aria-label="${esc(titleCase(name))} progress">
-          <div class="pb-kg num">${fmtKg(kg)}<small> kg</small></div><div class="pb-name">${esc(titleCase(name))}</div></button>`).join('')}</div>
-      </section>` : ''}
+      ${exerciseProgressCard()}
+      ${prCard()}
       </div>
 
       <div class="sec-block" data-sec-block="history">
@@ -739,21 +734,15 @@ function weekCompareCard() {
     return `<div class="wc-tile"><div class="stat-label">${label}</div><div class="stat-value num">${fmt(a)}</div>
       <div class="wc-foot">${delta}<span class="faint small num">vs ${fmt(b)}</span></div></div>`;
   };
-  // Volume for the last 8 weeks (this week so far on the right).
-  const weeks = Array.from({ length: 8 }, (_, i) => {
-    const start = thisStart - (7 - i) * WEEK;
-    return { start, v: trainingTotals(start, Math.min(start + WEEK, now)).volume };
+  // Week-by-week chart: last 12 weeks, this week so far on the right.
+  const metric = WEEK_METRICS.find((m) => m.id === weekMetric) ?? WEEK_METRICS[0];
+  const weeks = Array.from({ length: 12 }, (_, i) => {
+    const start = thisStart - (11 - i) * WEEK;
+    const v = trainingTotals(start, Math.min(start + WEEK, now))[metric.key];
+    return { label: i === 11 ? 'Now' : new Date(start).toLocaleDateString('en-IN', { day: 'numeric', month: 'numeric' }), v,
+      tip: metric.fmt(v), sub: i === 11 ? 'This week so far' : `Week of ${fmtDate(start)}`, now: i === 11 };
   });
-  const max = Math.max(...weeks.map((w) => w.v), 0);
-  const bars = weeks.map((w, i) => {
-    const h = max > 0 && w.v > 0 ? Math.max((w.v / max) * 100, 4) : 0;
-    const label = `${shortKg(w.v)} kg`;
-    return `<div class="col" tabindex="0" role="listitem" aria-label="${esc(`Week of ${fmtDate(w.start)}: ${label}`)}"
-        data-tip="${esc(label)}" data-sub="${esc(i === 7 ? 'This week so far' : `Week of ${fmtDate(w.start)}`)}">
-      <div class="col-val">${i === 7 && w.v ? esc(shortKg(w.v)) : ''}</div>
-      <div class="col-track"><div class="col-bar ${i === 7 ? 'now' : ''}" style="height:${h}%;--c:var(--train)"></div></div>
-    </div>`;
-  }).join('');
+  const avg = sum(weeks.slice(0, 11), (w) => w.v) / 11;
   const day = new Date().toLocaleDateString('en-IN', { weekday: 'long' });
   return `<section class="card">
     <div class="card-head"><div class="row-main"><div class="card-title">This week vs last week</div>
@@ -764,11 +753,130 @@ function weekCompareCard() {
       ${tile('Volume (kg)', cur.volume, prev.volume, shortKg)}
       ${tile('Minutes', cur.minutes, prev.minutes, (v) => String(v))}
     </div>
-    <div class="card-head" style="margin:18px 0 10px"><div class="card-title" style="font-size:14px">Volume · last 8 weeks</div></div>
-    <div class="cols" role="list" style="grid-template-columns:repeat(8,1fr);height:120px">${bars}${max === 0 ? '<div class="chart-empty">No volume logged yet</div>' : ''}</div>
-    <div class="col-days" style="grid-template-columns:repeat(8,1fr)">${weeks.map((w, i) => `<span class="${i === 7 ? 'today' : ''}">${i === 7 ? 'Now' : esc(new Date(w.start).toLocaleDateString('en-IN', { day: 'numeric', month: 'numeric' }))}</span>`).join('')}</div>
-    <div class="tip" hidden><strong></strong><span></span></div>
+    <div class="card-head" style="margin:18px 0 8px"><div class="card-title" style="font-size:14px">Week by week · last 12 weeks</div></div>
+    <div class="seg-tabs small" role="tablist" style="margin-bottom:12px">${WEEK_METRICS.map((m) => `
+      <button class="press" role="tab" data-action="week-metric" data-m="${m.id}" aria-selected="${m.id === metric.id}">${m.label}</button>`).join('')}</div>
+    ${barChart(weeks, { fmt: metric.short, target: avg > 0 ? avg : null, targetLabel: `avg ${metric.short(Math.round(avg))}` })}
   </section>`;
+}
+const WEEK_METRICS = [
+  { id: 'volume', key: 'volume', label: 'Volume', fmt: (v) => `${shortKg(v)} kg`, short: (v) => shortKg(v) },
+  { id: 'sets', key: 'sets', label: 'Sets', fmt: (v) => plural(v, 'set'), short: (v) => String(v) },
+  { id: 'sessions', key: 'sessions', label: 'Workouts', fmt: (v) => plural(v, 'workout'), short: (v) => String(v) },
+  { id: 'minutes', key: 'minutes', label: 'Minutes', fmt: (v) => `${v} min`, short: (v) => String(v) },
+];
+let weekMetric = 'volume';
+
+/* ---------- Personal records (PRs) ---------- */
+// A PR here = the heaviest weight you've ever lifted for an exercise (with how many reps, and when).
+
+/**
+ * Your best sets for one exercise: for each weight, the most reps you did with it,
+ * heaviest first. So the top 3 reads like "65 kg × 8, 62.5 kg × 10, 60 kg × 12".
+ */
+function bestSets(name, excludeId, n = 3) {
+  const key = normName(name);
+  const byKg = new Map();
+  for (const w of doneWorkouts()) {
+    if (w.id === excludeId) continue;
+    for (const e of w.exercises ?? []) {
+      if (normName(e.name) !== key || isCardio(e)) continue;
+      for (const s of exSets(e)) {
+        if (!(s.reps > 0)) continue;
+        const kg = s.kg || 0;
+        const cur = byKg.get(kg);
+        if (!cur || s.reps > cur.reps || (s.reps === cur.reps && w.at > cur.at)) byKg.set(kg, { kg, reps: s.reps, at: w.at });
+      }
+    }
+  }
+  return [...byKg.values()].sort((a, b) => b.kg - a.kg || b.reps - a.reps).slice(0, n);
+}
+
+/** Every exercise you've logged with weight: heaviest set, when, and estimated 1-rep max. */
+function allRecords() {
+  const rec = new Map();
+  for (const w of doneWorkouts()) {
+    for (const e of w.exercises ?? []) {
+      if (isCardio(e)) continue;
+      const key = normName(e.name);
+      for (const s of exSets(e)) {
+        if (!(s.kg > 0 && s.reps > 0)) continue;
+        const x = rec.get(key) ?? { key, name: e.name, kg: 0, reps: 0, at: 0, e1: 0, sessions: new Set() };
+        x.sessions.add(w.id);
+        if (s.kg > x.kg || (s.kg === x.kg && s.reps > x.reps)) Object.assign(x, { kg: s.kg, reps: s.reps, at: w.at });
+        x.e1 = Math.max(x.e1, est1RM(s.kg, s.reps));
+        rec.set(key, x);
+      }
+    }
+  }
+  return [...rec.values()].sort((a, b) => b.kg - a.kg);
+}
+
+const MEDALS = ['🥇', '🥈', '🥉'];
+function prRow(x, i) {
+  return `<button class="pr-line press" data-action="pb-open" data-name="${esc(x.key)}">
+    <span class="pr-rank num">${i < 3 ? MEDALS[i] : i + 1}</span>
+    <span class="pr-main"><span class="pr-ex">${esc(titleCase(x.name))}</span>
+      <span class="pr-sub">${fmtKg(x.kg)} kg × ${x.reps} reps · ${esc(fmtDate(x.at))}${x.e1 ? ` · max 1 rep ≈ ${fmtKg(Math.round(x.e1 * 2) / 2)} kg` : ''}</span></span>
+    <span class="pr-kg num">${fmtKg(x.kg)}<small> kg</small></span>
+  </button>`;
+}
+
+function prCard() {
+  const recs = allRecords();
+  if (!recs.length) return '';
+  return `<section class="card">
+    <div class="card-head"><div class="row-main"><div class="card-title">Personal records</div>
+      <div class="card-sub">Heaviest weight you've lifted on each exercise</div></div>
+      ${recs.length > 6 ? `<button class="see-all press" data-action="pbs-all">See all ${recs.length}</button>` : ''}</div>
+    ${recs.slice(0, 6).map(prRow).join('')}
+    <p class="map-note">Tap one to see its progress. "Max 1 rep" estimates the most you could lift once, from your best set.</p>
+  </section>`;
+}
+
+/* ---------- Exercise progress graph ---------- */
+let progressEx = null; // chosen exercise key
+let progressMetric = 'kg'; // kg = heaviest weight per session · e1 = estimated max · vol = volume
+
+function exerciseProgressCard() {
+  const recs = allRecords().filter((x) => x.sessions.size >= 2).sort((a, b) => b.sessions.size - a.sessions.size);
+  if (!recs.length) return '';
+  const pick = recs.find((x) => x.key === progressEx) ?? recs[0];
+  const hist = exerciseHistory(pick.key);
+  const val = (h) => (progressMetric === 'e1' ? Math.max(0, ...h.sets.map((s) => est1RM(s.kg, s.reps))) : progressMetric === 'vol' ? h.volume : h.kg);
+  const pts = hist.map((h) => ({ at: h.at, v: Math.round(val(h) * 10) / 10 })).filter((p) => p.v > 0);
+  const first = pts[0]?.v ?? 0; const last = pts.at(-1)?.v ?? 0;
+  const change = last - first;
+  const unit = 'kg';
+  const metrics = [['kg', 'Heaviest'], ['e1', 'Max 1 rep'], ['vol', 'Volume']];
+  return `<section class="card">
+    <div class="card-head"><div class="card-title">Exercise progress</div></div>
+    <label class="field ex-pick-field"><span>Exercise</span>
+      <select id="progress-ex">${recs.map((x) => `<option value="${esc(x.key)}" ${x.key === pick.key ? 'selected' : ''}>${esc(titleCase(x.name))} (${x.sessions.size})</option>`).join('')}</select></label>
+    <div class="seg-tabs small" role="tablist" style="margin:10px 0 4px">${metrics.map(([k, l]) => `
+      <button class="press" role="tab" data-action="progress-metric" data-m="${k}" aria-selected="${progressMetric === k}">${l}</button>`).join('')}</div>
+    ${pts.length >= 2 ? `<div class="prog-summary"><span class="num"><b>${fmtKg(last)}</b> ${unit}</span>
+      <span class="delta ${change > 0 ? 'up' : change < 0 ? 'down' : 'flat'}">${change ? icon(change > 0 ? 'up' : 'down', 12, 2.6) : ''}${change ? `${fmtKg(Math.abs(Math.round(change * 10) / 10))} ${unit}` : 'No change'}</span>
+      <span class="faint small">since ${esc(fmtDate(pts[0].at))}</span></div>` : ''}
+    ${lineChart(pts, { color: 'var(--train)', unit, id: 'exprog' })}
+  </section>`;
+}
+
+/* ---------- Simple bar chart (weeks, months) ---------- */
+/** items: [{ label, v, tip, sub, now }] · optional dashed target line. */
+function barChart(items, { color = 'var(--train)', fmt = (v) => String(v), height = 130, target = null, targetLabel = '' } = {}) {
+  const max = Math.max(...items.map((x) => x.v), target ?? 0, 0);
+  const n = items.length;
+  const bars = items.map((x) => {
+    const h = max > 0 && x.v > 0 ? Math.max((x.v / max) * 100, 3) : 0;
+    return `<div class="col" tabindex="0" role="listitem" aria-label="${esc(`${x.sub}: ${x.tip}`)}" data-tip="${esc(x.tip)}" data-sub="${esc(x.sub)}">
+      <div class="col-val">${x.now && x.v ? esc(fmt(x.v)) : ''}</div>
+      <div class="col-track"><div class="col-bar ${x.now ? 'now' : ''}" style="height:${h}%;--c:${color}"></div></div></div>`;
+  }).join('');
+  const line = target && max > 0 ? `<div class="target-line" style="bottom:${(target / max) * 100}%"><span>${esc(targetLabel)}</span></div>` : '';
+  return `<div class="cols bars" role="list" style="grid-template-columns:repeat(${n},1fr);height:${height}px">${bars}${line}${max === 0 ? '<div class="chart-empty">Nothing logged yet</div>' : ''}</div>
+    <div class="col-days" style="grid-template-columns:repeat(${n},1fr)">${items.map((x) => `<span class="${x.now ? 'today' : ''}">${esc(x.label)}</span>`).join('')}</div>
+    <div class="tip" hidden><strong></strong><span></span></div>`;
 }
 
 /** Your strongest lifts by estimated 1RM (sets of 1–12 reps). */
@@ -813,11 +921,9 @@ function workoutRow(w, details = true) {
 }
 
 function allBestsSheet() {
-  const all = Object.entries(bestLifts()).sort((a, b) => b[1] - a[1]);
-  openSheet('Personal bests', `<p class="muted small" style="margin:0 0 12px">Tap an exercise to see your progress.</p>
-    <section class="card">${all.map(([name, kg]) => `<button class="row press" data-action="pb-open" data-name="${esc(name)}"><div class="tile-icon" style="--c:var(--warning)">${icon('trophy', 18)}</div>
-    <div class="row-main"><div class="row-title">${esc(titleCase(name))}</div><div class="row-sub">Heaviest set</div></div>
-    <div class="row-end"><strong>${fmtKg(kg)} kg</strong></div>${icon('right', 16)}</button>`).join('')}</section>`);
+  const all = allRecords();
+  openSheet('Personal records', `<p class="muted small" style="margin:0 0 12px">The heaviest weight you've lifted on each exercise, with the reps and date. Tap one to see its progress.</p>
+    <section class="card">${all.map(prRow).join('')}</section>`);
 }
 
 /* ---------- Exercise progress ---------- */
@@ -2657,6 +2763,11 @@ function sessionView() {
     const goalSets = e.target?.sets;
     const topKg = Math.max(0, ...sets.map((x) => x.kg || 0));
     const isPr = !cardio && topKg > 0 && topKg > (prev[normName(e.name)] ?? 0) && prev[normName(e.name)] !== undefined;
+    const top3 = cardio ? [] : bestSets(e.name, s.id, 3);
+    const topBlock = top3.length ? `<div class="top-prs" aria-label="Your best 3 sets for ${esc(e.name)}">
+        <span class="top-prs-label">${icon('trophy', 13, 2.2)}Your best</span>
+        ${top3.map((t, k) => `<span class="top-pr"><b>${MEDALS[k]}</b><span class="num">${t.kg ? `${fmtKg(t.kg)} kg × ${t.reps}` : `${t.reps} reps`}</span><small>${esc(fmtDate(t.at))}</small></span>`).join('')}
+      </div>` : '';
 
     return `<section class="card ex-card" data-ex="${i}">
       <div class="ex-head">
@@ -2668,6 +2779,7 @@ function sessionView() {
         <button class="x-btn press" data-action="how-to" data-name="${esc(e.name)}" data-muscle="${esc(e.muscle ?? '')}" aria-label="How to do ${esc(e.name)}">${icon('info', 18)}</button>
         <button class="x-btn press" data-action="session-remove-ex" data-i="${i}" aria-label="Remove ${esc(e.name)}">${icon('x', 18)}</button>
       </div>
+      ${topBlock}
       ${sets.length ? `<div class="set-list">${sets.map((x, j) => `
         <div class="set-row"><span class="set-no num">${j + 1}</span><span class="set-val num">${esc(setText(e, x))}</span>
           <button class="x-btn press" data-action="session-del-set" data-i="${i}" data-j="${j}" aria-label="Delete set ${j + 1}">${icon('x', 16)}</button></div>`).join('')}
@@ -2779,6 +2891,19 @@ function moneyView() {
           <div class="stat"><div class="stat-value num" style="font-size:18px">${shortRupees(perDay)}</div><div class="stat-label">Per day left</div></div>
         </div>` : ''}
       </section>
+
+      ${(() => {
+        // Spending per month for the last 6 months, ending at the month being viewed.
+        const months = Array.from({ length: 6 }, (_, i) => new Date(moneyMonth.getFullYear(), moneyMonth.getMonth() - (5 - i), 1));
+        const items = months.map((m, i) => {
+          const v = sum(d.expenses.filter((e) => sameMonth(e.at, m)), (e) => e.amount);
+          return { label: m.toLocaleDateString('en-IN', { month: 'short' }), v, tip: rupees(v), sub: m.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) + (v > budget ? ' · over budget' : ''), now: i === 5 };
+        });
+        return items.some((x) => x.v > 0) ? `<section class="card">
+          <div class="card-head"><div class="card-title">Spending by month</div><div class="card-sub">Dashed line = budget</div></div>
+          ${barChart(items, { color: 'var(--money)', fmt: shortRupees, target: budget, targetLabel: `budget ${shortRupees(budget)}` })}
+        </section>` : '';
+      })()}
 
       ${byCat.length ? `<section class="card">
         <div class="card-head"><div class="card-title">By category</div><div class="card-sub">${byCat.length} ${byCat.length === 1 ? 'category' : 'categories'}</div></div>
@@ -3703,6 +3828,8 @@ const ACTIONS = {
   },
   'train-today': () => { trainWeeksBack = 0; trainDay = null; render(); },
   'section': (el) => switchSection(el.dataset.s),
+  'week-metric': (el) => { weekMetric = el.dataset.m; render(); },
+  'progress-metric': (el) => { progressMetric = el.dataset.m; render(); },
   'heatmap-day': (el) => {
     jumpToDay(Number(el.dataset.day));
     setTimeout(() => document.getElementById('days-card')?.scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'center' }), 50);
@@ -3772,6 +3899,13 @@ window.addEventListener('hashchange', () => {
   const tab = location.hash.slice(1);
   if (tab === 'water') { go('today'); history.replaceState(null, '', '#today'); return; } // old reminder links
   if (ROUTES.includes(tab) && tab !== route) go(tab);
+});
+
+// Train → Exercise progress: pick which exercise to graph.
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'progress-ex') return;
+  progressEx = e.target.value;
+  render();
 });
 
 // Train → calendar button: jump to the picked date.

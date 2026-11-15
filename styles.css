@@ -1377,3 +1377,28 @@ body.in-chat .frame { padding-bottom: calc(env(safe-area-inset-bottom) + 96px); 
 /* ---------- Train: one scrolling page, sections tracked by the bar ---------- */
 .sec-block { display: flex; flex-direction: column; gap: 14px; }
 .section-body { gap: 14px; }
+
+/* ---------- Personal records ---------- */
+.pr-line { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 0; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; text-align: left; }
+.pr-line:last-of-type { border-bottom: 0; }
+.pr-rank { flex: none; width: 26px; text-align: center; font-size: 17px; color: var(--text-3); font-weight: 700; }
+.pr-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.pr-ex { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-sub { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-kg { flex: none; font-size: 19px; font-weight: 700; color: var(--warning); letter-spacing: -0.02em; }
+.pr-kg small { font-size: 12px; color: var(--text-3); font-weight: 600; }
+
+/* ---------- Top 3 PRs on a workout exercise ---------- */
+.top-prs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 2px; padding: 8px 10px; border-radius: 12px; background: color-mix(in srgb, var(--warning) 9%, var(--surface-2)); border: 1px solid color-mix(in srgb, var(--warning) 22%, transparent); }
+.top-prs-label { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--warning); margin-right: 2px; }
+.top-pr { display: inline-flex; align-items: baseline; gap: 4px; padding: 3px 8px; border-radius: 999px; background: var(--surface); font-size: 13px; font-weight: 600; }
+.top-pr b { font-size: 12px; }
+.top-pr small { font-size: 10px; color: var(--text-3); font-weight: 500; }
+
+/* ---------- Charts ---------- */
+.ex-pick-field select { font-weight: 600; }
+.prog-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 2px; font-size: 14px; }
+.prog-summary b { font-size: 22px; letter-spacing: -0.02em; }
+.cols.bars { border-bottom: 1px solid var(--line-strong); }
+.target-line { position: absolute; left: 0; right: 0; border-top: 1.5px dashed color-mix(in srgb, var(--text) 45%, transparent); pointer-events: none; }
+.target-line span { position: absolute; right: 0; bottom: 2px; font-size: 10px; font-weight: 600; color: var(--text-3); background: var(--surface); padding: 0 4px; border-radius: 4px; }
