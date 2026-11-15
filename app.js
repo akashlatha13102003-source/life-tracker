@@ -2764,22 +2764,29 @@ function sessionView() {
     const topKg = Math.max(0, ...sets.map((x) => x.kg || 0));
     const isPr = !cardio && topKg > 0 && topKg > (prev[normName(e.name)] ?? 0) && prev[normName(e.name)] !== undefined;
     const top3 = cardio ? [] : bestSets(e.name, s.id, 3);
-    const topBlock = top3.length ? `<div class="top-prs" aria-label="Your best 3 sets for ${esc(e.name)}">
-        <span class="top-prs-label">${icon('trophy', 13, 2.2)}Your best</span>
-        ${top3.map((t, k) => `<span class="top-pr"><b>${MEDALS[k]}</b><span class="num">${t.kg ? `${fmtKg(t.kg)} kg × ${t.reps}` : `${t.reps} reps`}</span><small>${esc(fmtDate(t.at))}</small></span>`).join('')}
-      </div>` : '';
+    // "Last time" (to match or beat today) next to "Best ever" (all-time records). Tap a row to use it.
+    const short = (kg, reps) => (kg ? `${fmtKg(kg)}<i>×</i>${reps}` : `${reps}<i> reps</i>`);
+    const useAttrs = (kg, reps) => `data-action="use-set" data-i="${i}" data-kg="${kg || 0}" data-reps="${reps}"`;
+    const lastSets = !cardio && last ? last.sets.filter((x) => x.reps > 0) : [];
+    // Two slim lines: last session's sets, and your best 3 ever. Tap a chip to fill in kg and reps.
+    const histBlock = cardio || (!lastSets.length && !top3.length) ? '' : `<div class="hist-mini">
+        ${lastSets.length ? `<div class="hm-line"><span class="hm-lbl">Last<small>${esc(fmtDate(last.at))}</small></span>
+          <div class="hm-chips">${lastSets.slice(0, 5).map((x) => `<button type="button" class="hm-chip num press" ${useAttrs(x.kg, x.reps)} aria-label="Use ${x.kg ? `${fmtKg(x.kg)} kg × ` : ''}${x.reps}">${short(x.kg, x.reps)}</button>`).join('')}</div></div>` : ''}
+        ${top3.length ? `<div class="hm-line best"><span class="hm-lbl">${icon('trophy', 11, 2.4)}Best</span>
+          <div class="hm-chips">${top3.map((t, k) => `<button type="button" class="hm-chip num press" ${useAttrs(t.kg, t.reps)} aria-label="Record ${k + 1}: ${t.kg ? `${fmtKg(t.kg)} kg × ` : ''}${t.reps}, ${esc(fmtDate(t.at))}" title="${esc(fmtDate(t.at))}"><span class="rk r${k + 1}">${k + 1}</span>${short(t.kg, t.reps)}</button>`).join('')}</div></div>` : ''}
+      </div>`;
 
     return `<section class="card ex-card" data-ex="${i}">
       <div class="ex-head">
         <div class="row-main">
           <div class="row-title">${esc(e.name)}</div>
-          <div class="row-sub">${esc(e.muscle ?? '')}${goalSets ? ` · Plan: ${goalSets} × ${esc(e.target.reps)}` : ''}${last ? ` · Last: ${esc(summariseSets(last.ex, last.sets))}` : ' · First time'}</div>
+          <div class="row-sub">${esc(e.muscle ?? '')}${goalSets ? ` · Plan: ${goalSets} × ${esc(e.target.reps)}` : ''}${cardio && last ? ` · Last: ${esc(summariseSets(last.ex, last.sets))}` : ''}</div>
         </div>
         ${isPr ? `<span class="pr-badge">${icon('trophy', 13, 2.2)}New PR</span>` : ''}
         <button class="x-btn press" data-action="how-to" data-name="${esc(e.name)}" data-muscle="${esc(e.muscle ?? '')}" aria-label="How to do ${esc(e.name)}">${icon('info', 18)}</button>
         <button class="x-btn press" data-action="session-remove-ex" data-i="${i}" aria-label="Remove ${esc(e.name)}">${icon('x', 18)}</button>
       </div>
-      ${topBlock}
+      ${histBlock}
       ${sets.length ? `<div class="set-list">${sets.map((x, j) => `
         <div class="set-row"><span class="set-no num">${j + 1}</span><span class="set-val num">${esc(setText(e, x))}</span>
           <button class="x-btn press" data-action="session-del-set" data-i="${i}" data-j="${j}" aria-label="Delete set ${j + 1}">${icon('x', 16)}</button></div>`).join('')}
@@ -3668,6 +3675,17 @@ const ACTIONS = {
     write(store.update('workouts', s.id, { exercises: s.exercises.filter((_, k) => k !== i) }), `${e.name} removed`);
   },
   'session-finish': () => finishSession(),
+  // Tap a "Last time" or "Best ever" row: put its weight and reps into the inputs.
+  'use-set': (el) => {
+    const s = activeSession();
+    if (!s) return;
+    const i = Number(el.dataset.i);
+    drafts[`${s.id}:${i}`] = { kg: fmtKg(Number(el.dataset.kg) || 0), reps: String(Number(el.dataset.reps) || '') };
+    render();
+    const card = document.querySelector(`.ex-card[data-ex="${i}"]`);
+    card?.querySelectorAll('.num-ctrl').forEach((c) => { c.classList.remove('flash'); void c.offsetWidth; c.classList.add('flash'); });
+    if (navigator.vibrate) navigator.vibrate(8);
+  },
   'session-pause': () => pauseSession(),
   'session-resume': () => resumeSession(),
   'session-discard': async () => {
