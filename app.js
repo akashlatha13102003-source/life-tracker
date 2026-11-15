@@ -1392,6 +1392,25 @@ document.addEventListener('input', (e) => {
 
 let wakeLock = null;
 let wakeWanted = false;
+// Your choice (this phone only) for the screen during workouts:
+//   on   = never locks · auto = stays on while you're active, may lock after 3 min with no taps · off = locks as normal
+const WAKE_MODES = ['auto', 'on', 'off'];
+const WAKE_IDLE_MS = 3 * 60 * 1000;
+let wakeMode = (() => { try { const m = localStorage.getItem('lt-wake-mode'); return WAKE_MODES.includes(m) ? m : 'auto'; } catch { return 'auto'; } })();
+let lastActivity = Date.now();
+/** Should the screen be held on right now? */
+function wantScreenOn() {
+  const s = activeSession();
+  if (route !== 'session' || !s || isPaused(s) || wakeMode === 'off') return false;
+  return wakeMode === 'on' || Date.now() - lastActivity < WAKE_IDLE_MS;
+}
+// Any tap or key press during a workout counts as activity (wakes Auto mode back up).
+['pointerdown', 'keydown'].forEach((type) => document.addEventListener(type, () => {
+  lastActivity = Date.now();
+  if (route === 'session') syncWakeLock(wantScreenOn());
+}, { passive: true }));
+// Auto mode: check every 15 s whether you've gone quiet long enough to let the screen lock.
+setInterval(() => { if (route === 'session') syncWakeLock(wantScreenOn()); }, 15000);
 let wakePending = false;
 async function syncWakeLock(on) {
   wakeWanted = on;
@@ -2820,7 +2839,9 @@ function sessionView() {
       <div><div class="eyebrow" style="color:var(--train)">${esc(muscles)}</div>
         <h1 class="num session-clock ${isPaused(s) ? 'paused' : ''}" ${timerAttrs(s)}>${fmtClock(sessionElapsed(s))}</h1>
         ${isPaused(s) ? `<div class="awake-note paused-note">${icon('pause', 13, 2.4)}Paused · clock stopped</div>`
-          : 'wakeLock' in navigator ? `<div class="awake-note">${icon('screen', 13, 2)}Screen stays on</div>` : ''}</div>
+          : 'wakeLock' in navigator ? `<button type="button" class="awake-toggle press mode-${wakeMode}" data-action="wake-toggle" aria-label="Screen during workouts: ${wakeMode}. Tap to change.">
+              ${icon('screen', 13, 2)}<span>Screen: <b>${{ on: 'On', auto: 'Auto', off: 'Off' }[wakeMode]}</b></span>
+              <i class="wake-dots" aria-hidden="true">${WAKE_MODES.map((m) => `<i class="${m === wakeMode ? 'cur' : ''}"></i>`).join('')}</i></button>` : ''}</div>
       <div class="head-actions">
         <button class="icon-btn press pause-btn ${isPaused(s) ? 'is-paused' : ''}" data-action="${isPaused(s) ? 'session-resume' : 'session-pause'}" aria-label="${isPaused(s) ? 'Resume workout' : 'Pause workout'}">${icon(isPaused(s) ? 'play' : 'pause', 20, 2.2)}</button>
         <button class="icon-btn press" data-tab="train" aria-label="Minimise session">${icon('left', 20)}</button>
@@ -2989,7 +3010,8 @@ function render() {
   const tab = inChat ? TABS[0] : inSession || inLibrary || inExplore ? TABS[1] : (TABS.find((t) => t.id === route) ?? TABS[0]);
   view.innerHTML = inSession ? sessionView() : inLibrary ? libraryView() : inExplore ? exploreView() : inChat ? chatView() : VIEWS[tab.id]();
   document.body.classList.toggle('in-session', inSession); document.body.classList.toggle('in-chat', inChat);
-  syncWakeLock(inSession && !isPaused(activeSession())); // let the screen sleep while paused
+  if (inSession) lastActivity = Date.now();
+  syncWakeLock(inSession && wantScreenOn()); // On / Auto / Off; always allowed to sleep while paused
   refreshWaterSheet();
   // Heatmap: start scrolled to the most recent weeks.
   view.querySelectorAll('.hm-scroll').forEach((el) => { el.scrollLeft = el.scrollWidth; });
@@ -3691,6 +3713,12 @@ const ACTIONS = {
     if (navigator.vibrate) navigator.vibrate(8);
   },
   'session-pause': () => pauseSession(),
+  'wake-toggle': () => {
+    wakeMode = WAKE_MODES[(WAKE_MODES.indexOf(wakeMode) + 1) % WAKE_MODES.length];
+    try { localStorage.setItem('lt-wake-mode', wakeMode); } catch { /* storage blocked */ }
+    toast({ auto: 'Auto: stays on while you train, can lock after 3 min idle', on: 'On: screen stays on the whole workout', off: 'Off: screen locks as normal' }[wakeMode]);
+    render();
+  },
   'session-resume': () => resumeSession(),
   'session-discard': async () => {
     const s = activeSession();
