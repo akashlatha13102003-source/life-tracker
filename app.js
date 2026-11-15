@@ -283,15 +283,31 @@ const write = (promise, okMessage) => {
 
 /* ================= Small UI pieces ================= */
 
-function toast(msg, isError = false) {
+/**
+ * Short message at the bottom. With `undo`, it stays ~6 s and shows an Undo button that runs `undo`.
+ */
+function toast(msg, isError = false, undo = null) {
   const el = document.getElementById('toast');
   if (!el) return;
   el.innerHTML = isError ? icon('alert', 18) : icon('check', 18, 2.4);
   el.querySelector('svg').style.color = isError ? 'var(--critical)' : 'var(--good)';
   el.append(document.createTextNode(msg));
+  el.classList.toggle('has-action', Boolean(undo));
+  if (undo) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-undo';
+    btn.textContent = 'Undo';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      el.classList.remove('show', 'has-action');
+      undo();
+    }, { once: true });
+    el.append(btn);
+  }
   el.classList.add('show');
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => el.classList.remove('show'), 2200);
+  toast.timer = setTimeout(() => el.classList.remove('show', 'has-action'), undo ? 6000 : 2200);
 }
 
 /** Circular progress dial. Animates in from empty when `animateNext` is set. */
@@ -431,15 +447,13 @@ function todayView() {
         <div class="eyebrow">Recovery</div>
         <div class="dial-wrap">${dial(rec.score / 100, rec.color, { id: 'score' })}
           <div class="dial-center">
-            <div class="hero-num">${rec.score}</div>
+            <div class="hero-num" aria-label="Recovery ${rec.score} percent">${rec.score}<span class="hero-pct">%</span></div>
             <div class="tier" style="--tier:${rec.color}">${icon(rec.icon, 14, 2.4)}${esc(rec.label)}</div>
           </div>
         </div>
         <p class="hero-sub rec-why">${esc(rec.reason)}</p>
         <p class="rec-advice">${esc(rec.advice)}</p>
-        ${ci ? `<button class="ci-summary press" data-action="checkin" aria-label="Edit this morning's check-in">
-            ${icon('moon', 14)}<span class="num">${fmtKg(Number(ci.sleep))} h</span><i></i><span>Sore ${ci.soreness}/5</span><i></i><span>Energy ${ci.energy}/5</span><b>Edit</b></button>`
-          : `<button class="btn tint press ci-btn" style="--c:var(--goal)" data-action="checkin">${icon('spark', 16, 2)}Morning check-in · 10 sec</button>`}
+        ${sleepControls(ci)}
         ${todayPlanLine(rec)}
       </section>
 
@@ -2080,12 +2094,10 @@ const fmtWait = (h) => (h <= 0 ? 'now' : h < 20 ? `in ${Math.max(1, Math.round(h
 
 /* ---------- Recovery score (0–100): how ready you are to train today ---------- */
 // Built from: fatigue of the muscles you'd train today, this week's load vs your usual, days in a row,
-// and (if you did it) this morning's check-in: sleep, soreness, energy.
+// and (if logged) last night's sleep. Training counts 65%, sleep 35%.
 
 const dayKey = (t = Date.now()) => toDateInput(t);
 const todayCheckin = () => (data().checkins ?? []).find((c) => c.day === dayKey()) ?? null;
-const SORENESS = ['None', 'A little', 'Some', 'Sore', 'Very sore'];
-const ENERGY = ['Drained', 'Low', 'Okay', 'Good', 'Great'];
 
 function recoveryStatus() {
   const loads = fatigueLoads();
@@ -2119,28 +2131,23 @@ function recoveryStatus() {
 
   const training = Math.max(0, Math.min(100, 0.6 * muscleReady + 0.4 * loadScore - runPenalty));
 
-  // 4. Morning check-in (optional) counts for half when you've done it.
+  // 4. Last night's sleep (optional): counts for 35% when logged; otherwise the score is training only.
   const ci = todayCheckin();
-  let check = null;
-  if (ci) {
-    const h = Number(ci.sleep) || 0;
-    const sleep = h >= 8 ? 100 : h >= 7 ? 90 : h >= 6 ? 70 : h >= 5 ? 50 : h >= 4 ? 30 : 15;
-    const sore = ((5 - (Number(ci.soreness) || 1)) / 4) * 100;
-    const energy = (((Number(ci.energy) || 3) - 1) / 4) * 100;
-    check = 0.45 * sleep + 0.3 * sore + 0.25 * energy;
+  let sleepScore = null;
+  if (ci && Number.isFinite(Number(ci.sleep))) {
+    const h = Number(ci.sleep);
+    sleepScore = h >= 8 ? 100 : h >= 7 ? 90 : h >= 6 ? 70 : h >= 5 ? 50 : h >= 4 ? 30 : 15;
   }
-  const score = Math.round(check === null ? training : 0.5 * training + 0.5 * check);
+  const score = Math.round(sleepScore === null ? training : 0.65 * training + 0.35 * sleepScore);
 
   // Why: the biggest things pulling the score down (or what's going well).
   const why = [];
   if (worst && worst[1] >= 30) why.push([worst[1], `${name(worst[0])} still recovering (${worst[1]}%)`]);
   if (ratio > 1.3) why.push([(ratio - 1) * 100, `training load ${Math.round((ratio - 1) * 100)}% above your usual`]);
   if (runPenalty) why.push([run * 10, `${run} days in a row`]);
-  if (ci && Number(ci.sleep) < 6.5) why.push([90 - Number(ci.sleep) * 10, `slept ${fmtKg(Number(ci.sleep))} h`]);
-  if (ci && Number(ci.soreness) >= 4) why.push([40, 'feeling sore']);
-  if (ci && Number(ci.energy) <= 2) why.push([35, 'low energy']);
+  if (ci && Number(ci.sleep) < 6.5) why.push([90 - Number(ci.sleep) * 10, `only ${fmtSleep(ci.sleep)} of sleep`]);
   why.sort((a, b) => b[0] - a[0]);
-  const good = ci && Number(ci.sleep) >= 7 ? `slept ${fmtKg(Number(ci.sleep))} h · muscles fresh` : 'muscles fresh · normal training load';
+  const good = ci && Number(ci.sleep) >= 7 ? `slept ${fmtSleep(ci.sleep)} · muscles fresh` : 'muscles fresh · normal training load';
   const reason = why.length ? why.slice(0, 2).map((w) => w[1]).join(' · ') : good;
 
   const tier = score >= 75 ? { label: 'Ready to push', color: 'var(--good)', icon: 'bolt', advice: 'Good day for heavy sets or a PR attempt.' }
@@ -2153,39 +2160,113 @@ function recoveryStatus() {
   return { score, ...tier, reason: reason.charAt(0).toUpperCase() + reason.slice(1), ci, ratio, run, worst, targets, planned, trainedToday };
 }
 
-function checkinSheet() {
+/** "7 h 30 m" from hours. */
+const fmtSleep = (h) => { const m = Math.round((Number(h) || 0) * 60); return `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} m` : ''}`; };
+/** Minutes asleep between a bedtime and wake-up time ("23:20" → "06:50"), crossing midnight if needed. */
+const sleepMinutes = (bed, wake) => {
+  const [bh, bm] = String(bed).split(':').map(Number); const [wh, wm] = String(wake).split(':').map(Number);
+  if (![bh, bm, wh, wm].every(Number.isFinite)) return null;
+  let mins = (wh * 60 + wm) - (bh * 60 + bm);
+  if (mins <= 0) mins += 24 * 60;
+  return mins;
+};
+
+function checkinSheet(prefill = null) {
   const ci = todayCheckin();
-  const sleep = ci ? Number(ci.sleep) : 7;
-  const pick = (name, labels, value) => `<div class="ci-scale" role="radiogroup" aria-label="${name}">${labels.map((l, k) => `
-    <label><input type="radio" name="${name}" value="${k + 1}" ${value === k + 1 ? 'checked' : ''}><span><b>${k + 1}</b>${esc(l)}</span></label>`).join('')}</div>`;
-  openSheet('Morning check-in', `
-    <p class="muted small" style="margin:0 0 14px">Three quick answers make your Recovery score much more accurate. Takes about 10 seconds.</p>
-    <span class="label">Sleep last night</span>
-    <div class="stepper card" style="padding:12px 14px">
-      <div><div class="card-title">${icon('moon', 15)} Hours slept</div></div>
-      <div class="stepper-ctrl">
-        <button type="button" class="press" data-action="ci-sleep" data-step="-0.5" aria-label="Less sleep">${icon('minus', 18, 2.2)}</button>
-        <strong class="num" id="ci-sleep-val">${fmtKg(sleep)} h</strong>
-        <button type="button" class="press" data-action="ci-sleep" data-step="0.5" aria-label="More sleep">${icon('plus', 18, 2.2)}</button>
-      </div>
+  // Start from: given times, a "Going to bed" tap, today's entry, your most recent times, else 11 pm → 7 am.
+  const lastWithTimes = [...(data().checkins ?? [])].filter((c) => c.bed && c.wake).sort((a, b) => b.at - a.at)[0];
+  const pending = pendingBedtime();
+  const bed = prefill?.bed ?? (pending ? hhmm(pending) : null) ?? ci?.bed ?? lastWithTimes?.bed ?? '23:00';
+  const wake = prefill?.wake ?? (pending ? hhmm(Date.now()) : null) ?? ci?.wake ?? lastWithTimes?.wake ?? '07:00';
+  openSheet('Log sleep', `
+    <p class="muted small" style="margin:0 0 14px">When did you go to bed and wake up? It counts for about a third of your Recovery score; the rest comes from your workouts.</p>
+    <div class="field-row sleep-times">
+      ${field(`${icon('moon', 14)} Went to bed`, `<input type="time" name="bed" value="${esc(bed)}" data-sleep-time required>`)}
+      ${field(`${icon('bolt', 14)} Woke up`, `<input type="time" name="wake" value="${esc(wake)}" data-sleep-time required>`)}
     </div>
-    <input type="hidden" name="sleep" value="${sleep}">
-    <span class="label">Muscle soreness</span>
-    ${pick('soreness', SORENESS, ci ? Number(ci.soreness) : 2)}
-    <span class="label">Energy</span>
-    ${pick('energy', ENERGY, ci ? Number(ci.energy) : 4)}
+    <div class="sleep-total"><span>You slept</span><strong class="num" id="sleep-total">${fmtSleep((sleepMinutes(bed, wake) ?? 0) / 60)}</strong></div>
+    <p class="faint small" style="margin:8px 2px 0;text-align:center">If you woke up in the night for a while, set the times a bit closer together.</p>
   `, (form, f) => {
-    const values = {
-      day: dayKey(), at: Date.now(),
-      sleep: Math.max(0, Math.min(14, num(f.get('sleep')))),
-      soreness: Math.min(5, Math.max(1, Math.round(num(f.get('soreness'))) || 2)),
-      energy: Math.min(5, Math.max(1, Math.round(num(f.get('energy'))) || 3)),
-    };
+    const mins = sleepMinutes(f.get('bed'), f.get('wake'));
+    if (mins === null) { toast('Pick both times', true); return false; }
+    if (mins < 60 || mins > 16 * 60) { toast('That’s outside 1–16 hours. Check the times.', true); return false; }
+    const values = { day: dayKey(), at: Date.now(), bed: f.get('bed'), wake: f.get('wake'), sleep: Math.round((mins / 60) * 100) / 100 };
     const existing = todayCheckin();
-    if (existing) write(store.update('checkins', existing.id, values), 'Check-in updated');
-    else write(store.add('checkins', values), 'Check-in saved');
+    if (existing) write(store.update('checkins', existing.id, values), `Sleep: ${fmtSleep(values.sleep)}`);
+    else write(store.add('checkins', values), `Sleep: ${fmtSleep(values.sleep)}`);
+    if (pendingBedtime()) write(store.saveSettings({ sleepPending: null }));
   }, 'Save', 'var(--goal)');
 }
+
+/* ---------- Two-tap sleep: "Going to bed" at night, "I'm awake" in the morning ---------- */
+const hhmm = (t) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+/** A bedtime tapped in the last 16 hours that hasn't been paired with a wake-up yet. */
+function pendingBedtime() {
+  const at = Number(data().settings.sleepPending?.at);
+  return at && Date.now() - at < 16 * 3600000 ? at : null;
+}
+const isEvening = () => { const h = new Date().getHours(); return h >= 20 || h < 4; };
+
+function sleepControls(ci) {
+  const pending = pendingBedtime();
+  const parts = [];
+  if (pending) {
+    // In bed: the main button records waking up now.
+    parts.push(`<button class="btn tint press ci-btn" style="--c:var(--warning)" data-action="sleep-wake">${icon('bolt', 16, 2.2)}I'm awake</button>
+      <p class="sleep-note">In bed since ${esc(fmtHM(hhmm(pending)))} · <button class="link-btn" data-action="sleep-cancel">Cancel</button></p>`);
+  } else if (ci) {
+    parts.push(`<button class="ci-summary press" data-action="checkin" aria-label="Edit last night's sleep">${icon('moon', 14)}<span class="num">${fmtSleep(ci.sleep)} slept</span><b>Edit</b></button>`);
+    if (isEvening()) parts.push(`<button class="btn ghost press ci-btn" data-action="sleep-start">${icon('moon', 16, 2)}Going to bed</button>`);
+  } else if (isEvening()) {
+    parts.push(`<button class="btn tint press ci-btn" style="--c:var(--goal)" data-action="sleep-start">${icon('moon', 16, 2)}Going to bed</button>
+      <p class="sleep-note">Tap as you go to sleep, then “I'm awake” in the morning. <button class="link-btn" data-action="checkin">Enter times</button></p>`);
+  } else {
+    parts.push(`<button class="btn tint press ci-btn" style="--c:var(--goal)" data-action="checkin">${icon('moon', 16, 2)}Log last night's sleep</button>`);
+  }
+  return `<div class="sleep-controls">${parts.join('')}</div>`;
+}
+
+function startSleep() {
+  const before = data().settings.sleepPending ?? null; // put back exactly this on Undo
+  write(store.saveSettings({ sleepPending: { at: Date.now() } }));
+  toast('Good night 🌙 Tap “I’m awake” in the morning', false, () => {
+    write(store.saveSettings({ sleepPending: before }), 'Bedtime undone');
+  });
+}
+
+function wakeUp() {
+  const bedAt = pendingBedtime();
+  if (!bedAt) { checkinSheet(); return; }
+  const mins = Math.round((Date.now() - bedAt) / 60000);
+  if (mins < 60) {
+    // Less than an hour: probably a mistake, let them fix it by hand.
+    toast('That was under an hour. Check the times.', true);
+    checkinSheet({ bed: hhmm(bedAt), wake: hhmm(Date.now()) });
+    return;
+  }
+  const values = { day: dayKey(), at: Date.now(), bed: hhmm(bedAt), wake: hhmm(Date.now()), sleep: Math.round((Math.min(mins, 16 * 60) / 60) * 100) / 100 };
+  // Remember how things were, so Undo can put the bedtime (and any earlier entry) back.
+  const existing = todayCheckin();
+  const previous = existing ? { day: existing.day, at: existing.at, bed: existing.bed ?? null, wake: existing.wake ?? null, sleep: existing.sleep } : null;
+  const id = existing?.id ?? makeId();
+  if (existing) write(store.update('checkins', id, values));
+  else write(store.set('checkins', id, values));
+  write(store.saveSettings({ sleepPending: null }));
+  toast(`Good morning ☀️ You slept ${fmtSleep(values.sleep)}`, false, () => {
+    if (previous) write(store.update('checkins', id, previous));
+    else write(store.remove('checkins', id));
+    write(store.saveSettings({ sleepPending: { at: bedAt } }), 'Undone · still in bed since ' + fmtHM(hhmm(bedAt)));
+  });
+}
+
+// Live "You slept 7 h 30 m" while you change the times.
+document.addEventListener('input', (e) => {
+  if (!e.target.matches('[data-sleep-time]')) return;
+  const form = e.target.closest('form');
+  const mins = sleepMinutes(form?.bed?.value, form?.wake?.value);
+  const out = document.getElementById('sleep-total');
+  if (out) out.textContent = mins === null ? '–' : fmtSleep(mins / 60);
+});
 
 /** The "Today" line under the Recovery ring: what's on for today. */
 function todayPlanLine(rec) {
@@ -2495,7 +2576,7 @@ function aiContext() {
     (() => {
       const rec = recoveryStatus();
       const ci = rec.ci;
-      return `Recovery score: ${rec.score}/100 (${rec.label}; ${rec.reason}). It is the app's estimate from muscle fatigue, this week's load vs the usual, days in a row${ci ? `, and this morning's check-in: slept ${ci.sleep} h, soreness ${ci.soreness}/5 (${SORENESS[ci.soreness - 1]}), energy ${ci.energy}/5 (${ENERGY[ci.energy - 1]})` : ' (no check-in done today)'}.`;
+      return `Recovery: ${rec.score}% (${rec.label}; ${rec.reason}). It is the app's estimate: 65% from training (muscle fatigue, this week's load vs the usual, days in a row) and 35% from last night's sleep${ci ? ` (logged: ${fmtSleep(ci.sleep)}${ci.bed && ci.wake ? `, bed ${ci.bed} to ${ci.wake}` : ''})` : ' (sleep not logged today, so training only)'}.`;
     })());
   const live = activeSession();
   if (live) L.push(`Workout in progress${isPaused(live) ? ' (paused)' : ''}: ${(live.muscles ?? []).join(', ')}, ${workoutSets(live)} sets so far, ${Math.round(sessionElapsed(live) / 60000)} min.`);
@@ -3850,6 +3931,9 @@ const ACTIONS = {
   },
   'session-pause': () => pauseSession(),
   'checkin': () => checkinSheet(),
+  'sleep-start': () => startSleep(),
+  'sleep-wake': () => wakeUp(),
+  'sleep-cancel': () => write(store.saveSettings({ sleepPending: null }), 'Bedtime cancelled'),
   'ci-sleep': (el) => {
     const input = document.querySelector('.sheet input[name=sleep]');
     if (!input) return;
