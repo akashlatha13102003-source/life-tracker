@@ -406,12 +406,9 @@ function todayView() {
   const wt = weightStatus();
 
   const trainP = clamp01(minsToday / s.trainGoal);
-  const moneyP = spentToday <= allowance ? 1 : clamp01(1 - (spentToday - allowance) / allowance);
-  // Day score: training 50%, budget 30%, body weight in your range 20%.
-  const score = Math.round(100 * (0.5 * trainP + 0.3 * moneyP + 0.2 * wt.score));
-  const hits = [trainP >= 1, spentToday <= allowance, wt.ok].filter(Boolean).length;
-  const tier = tierFor(score);
   const overToday = spentToday > allowance;
+  const rec = recoveryStatus();
+  const ci = rec.ci;
 
   const mins = days.map((day) => sum(finished.filter((w) => sameDay(w.at, day)), (w) => w.minutes));
   const spend = days.map((day) => sum(d.expenses.filter((e) => sameDay(e.at, day)), (e) => e.amount));
@@ -430,18 +427,20 @@ function todayView() {
     ${head(dateLabel, 'Today', `<button class="icon-btn press chat-btn" data-tab="chat" aria-label="Ask the AI assistant">${icon('spark', 20, 1.9)}</button>${settingsBtn}`)}
     <div class="stack">
       ${live ? liveBanner(live) : ''}
-      <section class="card hero" style="--glow:color-mix(in srgb, ${tier.color} 35%, transparent)">
-        <div class="eyebrow">Day score</div>
-        <div class="dial-wrap">${dial(score / 100, tier.color === 'var(--text-3)' ? 'var(--text-2)' : tier.color, { id: 'score' })}
+      <section class="card hero recovery-card" style="--glow:color-mix(in srgb, ${rec.color} 35%, transparent)">
+        <div class="eyebrow">Recovery</div>
+        <div class="dial-wrap">${dial(rec.score / 100, rec.color, { id: 'score' })}
           <div class="dial-center">
-            <div class="hero-num">${score}</div>
-            <div class="tier" style="--tier:${tier.color}">${icon(tier.icon, 14, 2.4)}${esc(tier.label)}</div>
+            <div class="hero-num">${rec.score}</div>
+            <div class="tier" style="--tier:${rec.color}">${icon(rec.icon, 14, 2.4)}${esc(rec.label)}</div>
           </div>
         </div>
-        <div class="targets" aria-label="${hits} of 3 daily targets hit">
-          ${target('Train', trainP >= 1)}${target('Budget', spentToday <= allowance)}${target('Weight', wt.ok)}
-        </div>
-        ${st > 1 ? `<p class="hero-sub">${st}-day training streak</p>` : wt.streakText ? `<p class="hero-sub">${esc(wt.streakText)}</p>` : ''}
+        <p class="hero-sub rec-why">${esc(rec.reason)}</p>
+        <p class="rec-advice">${esc(rec.advice)}</p>
+        ${ci ? `<button class="ci-summary press" data-action="checkin" aria-label="Edit this morning's check-in">
+            ${icon('moon', 14)}<span class="num">${fmtKg(Number(ci.sleep))} h</span><i></i><span>Sore ${ci.soreness}/5</span><i></i><span>Energy ${ci.energy}/5</span><b>Edit</b></button>`
+          : `<button class="btn tint press ci-btn" style="--c:var(--goal)" data-action="checkin">${icon('spark', 16, 2)}Morning check-in · 10 sec</button>`}
+        ${todayPlanLine(rec)}
       </section>
 
       <div class="metrics">
@@ -2079,6 +2078,139 @@ function fatigueFill(p) {
 }
 const fmtWait = (h) => (h <= 0 ? 'now' : h < 20 ? `in ${Math.max(1, Math.round(h))} h` : `in ${plural(Math.round(h / 24) || 1, 'day')}`);
 
+/* ---------- Recovery score (0–100): how ready you are to train today ---------- */
+// Built from: fatigue of the muscles you'd train today, this week's load vs your usual, days in a row,
+// and (if you did it) this morning's check-in: sleep, soreness, energy.
+
+const dayKey = (t = Date.now()) => toDateInput(t);
+const todayCheckin = () => (data().checkins ?? []).find((c) => c.day === dayKey()) ?? null;
+const SORENESS = ['None', 'A little', 'Some', 'Sore', 'Very sore'];
+const ENERGY = ['Drained', 'Low', 'Okay', 'Good', 'Great'];
+
+function recoveryStatus() {
+  const loads = fatigueLoads();
+  const fat = (r) => fatiguePct(loads[r]);
+  const name = (r) => regionById(r)?.name ?? r;
+  const planned = todaysRoutine();
+  const trainedToday = doneWorkouts().some((w) => isToday(w.at) && w.type === 'Gym');
+
+  // 1. Muscles: the ones today's plan works, or your three most tired muscles on other days.
+  let targets = [];
+  if (planned && !trainedToday) for (const e of planned.exercises) targets.push(...musclesFor(e.name, e.muscle).p);
+  targets = [...new Set(targets)].filter((r) => r !== 'neck');
+  const pool = targets.length ? targets.map((r) => [r, fat(r)])
+    : MAP_REGIONS.map((r) => [r.id, fat(r.id)]).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const worst = [...pool].sort((a, b) => b[1] - a[1])[0];
+  // The most-tired muscle matters most: one wrecked muscle shouldn't be averaged away by fresh ones.
+  const avgFat = sum(pool, (v) => v[1]) / Math.max(1, pool.length);
+  const muscleReady = 100 - (0.7 * (worst?.[1] ?? 0) + 0.3 * avgFat);
+
+  // 2. Load: last 7 days vs your average week over the 4 weeks before (sets, plus 1 per 10 cardio minutes).
+  const WEEK = 7 * 86400000; const now = Date.now();
+  const load = (from, to) => { const t = trainingTotals(from, to); return t.sets + t.minutes / 10; };
+  const acute = load(now - WEEK, now);
+  const chronic = load(now - 5 * WEEK, now - WEEK) / 4;
+  const ratio = chronic > 0 ? acute / chronic : 1;
+  const loadScore = ratio <= 1.3 ? 100 : ratio >= 2 ? 40 : 100 - ((ratio - 1.3) / 0.7) * 60;
+
+  // 3. Days in a row without a break.
+  const run = streak(doneWorkouts());
+  const runPenalty = run >= 4 ? Math.min(21, (run - 3) * 7) : 0;
+
+  const training = Math.max(0, Math.min(100, 0.6 * muscleReady + 0.4 * loadScore - runPenalty));
+
+  // 4. Morning check-in (optional) counts for half when you've done it.
+  const ci = todayCheckin();
+  let check = null;
+  if (ci) {
+    const h = Number(ci.sleep) || 0;
+    const sleep = h >= 8 ? 100 : h >= 7 ? 90 : h >= 6 ? 70 : h >= 5 ? 50 : h >= 4 ? 30 : 15;
+    const sore = ((5 - (Number(ci.soreness) || 1)) / 4) * 100;
+    const energy = (((Number(ci.energy) || 3) - 1) / 4) * 100;
+    check = 0.45 * sleep + 0.3 * sore + 0.25 * energy;
+  }
+  const score = Math.round(check === null ? training : 0.5 * training + 0.5 * check);
+
+  // Why: the biggest things pulling the score down (or what's going well).
+  const why = [];
+  if (worst && worst[1] >= 30) why.push([worst[1], `${name(worst[0])} still recovering (${worst[1]}%)`]);
+  if (ratio > 1.3) why.push([(ratio - 1) * 100, `training load ${Math.round((ratio - 1) * 100)}% above your usual`]);
+  if (runPenalty) why.push([run * 10, `${run} days in a row`]);
+  if (ci && Number(ci.sleep) < 6.5) why.push([90 - Number(ci.sleep) * 10, `slept ${fmtKg(Number(ci.sleep))} h`]);
+  if (ci && Number(ci.soreness) >= 4) why.push([40, 'feeling sore']);
+  if (ci && Number(ci.energy) <= 2) why.push([35, 'low energy']);
+  why.sort((a, b) => b[0] - a[0]);
+  const good = ci && Number(ci.sleep) >= 7 ? `slept ${fmtKg(Number(ci.sleep))} h · muscles fresh` : 'muscles fresh · normal training load';
+  const reason = why.length ? why.slice(0, 2).map((w) => w[1]).join(' · ') : good;
+
+  const tier = score >= 75 ? { label: 'Ready to push', color: 'var(--good)', icon: 'bolt', advice: 'Good day for heavy sets or a PR attempt.' }
+    : score >= 50 ? { label: 'Train moderate', color: 'var(--warning)', icon: 'up', advice: 'Normal session; skip max attempts.' }
+      : { label: 'Take it easy', color: 'var(--critical)', icon: 'moon', advice: 'Rest, or train light / a fresh muscle group.' };
+  // Smarter advice when today's plan works muscles that are still tired.
+  if (targets.length && worst && worst[1] >= 60) {
+    tier.advice = `Your plan works ${name(worst[0]).toLowerCase()}, still ${worst[1]}% fatigued. Go lighter, or swap with another day's routine.`;
+  }
+  return { score, ...tier, reason: reason.charAt(0).toUpperCase() + reason.slice(1), ci, ratio, run, worst, targets, planned, trainedToday };
+}
+
+function checkinSheet() {
+  const ci = todayCheckin();
+  const sleep = ci ? Number(ci.sleep) : 7;
+  const pick = (name, labels, value) => `<div class="ci-scale" role="radiogroup" aria-label="${name}">${labels.map((l, k) => `
+    <label><input type="radio" name="${name}" value="${k + 1}" ${value === k + 1 ? 'checked' : ''}><span><b>${k + 1}</b>${esc(l)}</span></label>`).join('')}</div>`;
+  openSheet('Morning check-in', `
+    <p class="muted small" style="margin:0 0 14px">Three quick answers make your Recovery score much more accurate. Takes about 10 seconds.</p>
+    <span class="label">Sleep last night</span>
+    <div class="stepper card" style="padding:12px 14px">
+      <div><div class="card-title">${icon('moon', 15)} Hours slept</div></div>
+      <div class="stepper-ctrl">
+        <button type="button" class="press" data-action="ci-sleep" data-step="-0.5" aria-label="Less sleep">${icon('minus', 18, 2.2)}</button>
+        <strong class="num" id="ci-sleep-val">${fmtKg(sleep)} h</strong>
+        <button type="button" class="press" data-action="ci-sleep" data-step="0.5" aria-label="More sleep">${icon('plus', 18, 2.2)}</button>
+      </div>
+    </div>
+    <input type="hidden" name="sleep" value="${sleep}">
+    <span class="label">Muscle soreness</span>
+    ${pick('soreness', SORENESS, ci ? Number(ci.soreness) : 2)}
+    <span class="label">Energy</span>
+    ${pick('energy', ENERGY, ci ? Number(ci.energy) : 4)}
+  `, (form, f) => {
+    const values = {
+      day: dayKey(), at: Date.now(),
+      sleep: Math.max(0, Math.min(14, num(f.get('sleep')))),
+      soreness: Math.min(5, Math.max(1, Math.round(num(f.get('soreness'))) || 2)),
+      energy: Math.min(5, Math.max(1, Math.round(num(f.get('energy'))) || 3)),
+    };
+    const existing = todayCheckin();
+    if (existing) write(store.update('checkins', existing.id, values), 'Check-in updated');
+    else write(store.add('checkins', values), 'Check-in saved');
+  }, 'Save', 'var(--goal)');
+}
+
+/** The "Today" line under the Recovery ring: what's on for today. */
+function todayPlanLine(rec) {
+  const live = activeSession();
+  if (live) return '';
+  const doneToday = doneWorkouts().filter((w) => isToday(w.at));
+  if (doneToday.length) {
+    const w = doneToday.sort((a, b) => b.at - a.at)[0];
+    return `<div class="today-line done">${icon('check', 16, 2.6)}<span><b>Done today</b> · ${esc(w.type === 'Gym' ? (w.muscles ?? []).join(' & ') || 'Gym' : w.type)}, ${w.minutes} min</span></div>`;
+  }
+  if (rec.planned) {
+    const fresh = rec.targets.length ? rec.targets.map((r) => `${regionById(r)?.name ?? r} ${fatiguePct(fatigueLoads()[r])}%`).slice(0, 2).join(' · ') : '';
+    return `<div class="today-line">
+      <span><b>Today: ${esc(rec.planned.name)}</b>${fresh ? `<small>Fatigue: ${esc(fresh)}</small>` : ''}</span>
+      <button class="btn tint press" style="--c:var(--train)" data-action="start-routine" data-id="${esc(rec.planned.id)}">${icon('bolt', 16, 2.2)}Start</button>
+    </div>`;
+  }
+  const tired = rec.worst && rec.worst[1] >= 30 ? `${regionById(rec.worst[0])?.name} recovering (${rec.worst[1]}%)` : 'everything fresh';
+  const hasPlan = sortedRoutines().length > 0;
+  return `<div class="today-line">
+    <span><b>${hasPlan ? 'Rest day' : 'No plan today'}</b><small>${esc(tired)}</small></span>
+    <button class="btn ghost press" data-action="start-session">${icon('gym', 16)}Train anyway</button>
+  </div>`;
+}
+
 /* ---------- Strength: est. 1RM, held while you train, slowly fading after ~2 weeks off ---------- */
 const retention = (lastAt) => {
   if (!lastAt) return 0;
@@ -2360,7 +2492,11 @@ function aiContext() {
   const spentToday = sum(d.expenses.filter((e) => isToday(e.at)), (e) => e.amount);
   L.push('', '## Today', `Training: ${minsToday} of ${s.trainGoal} min target`,
     `Spent: ${rupees(spentToday)} (daily allowance ${rupees(s.budget / daysInMonth())})`,
-    `Day score weights: training 50%, budget 30%, body weight in range 20%.`);
+    (() => {
+      const rec = recoveryStatus();
+      const ci = rec.ci;
+      return `Recovery score: ${rec.score}/100 (${rec.label}; ${rec.reason}). It is the app's estimate from muscle fatigue, this week's load vs the usual, days in a row${ci ? `, and this morning's check-in: slept ${ci.sleep} h, soreness ${ci.soreness}/5 (${SORENESS[ci.soreness - 1]}), energy ${ci.energy}/5 (${ENERGY[ci.energy - 1]})` : ' (no check-in done today)'}.`;
+    })());
   const live = activeSession();
   if (live) L.push(`Workout in progress${isPaused(live) ? ' (paused)' : ''}: ${(live.muscles ?? []).join(', ')}, ${workoutSets(live)} sets so far, ${Math.round(sessionElapsed(live) / 60000)} min.`);
 
@@ -3662,7 +3798,7 @@ function settingsSheet() {
 
 function exportBackup() {
   const d = data();
-  const backup = { exportedAt: new Date().toISOString(), settings: d.settings, workouts: d.workouts, expenses: d.expenses, water: d.water, goals: d.goals, weights: d.weights, routines: d.routines, exercises: d.exercises };
+  const backup = { exportedAt: new Date().toISOString(), settings: d.settings, workouts: d.workouts, expenses: d.expenses, water: d.water, goals: d.goals, weights: d.weights, routines: d.routines, exercises: d.exercises, checkins: d.checkins };
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -3713,6 +3849,14 @@ const ACTIONS = {
     if (navigator.vibrate) navigator.vibrate(8);
   },
   'session-pause': () => pauseSession(),
+  'checkin': () => checkinSheet(),
+  'ci-sleep': (el) => {
+    const input = document.querySelector('.sheet input[name=sleep]');
+    if (!input) return;
+    const v = Math.max(0, Math.min(14, num(input.value) + Number(el.dataset.step)));
+    input.value = String(v);
+    document.getElementById('ci-sleep-val').textContent = `${fmtKg(v)} h`;
+  },
   'wake-toggle': () => {
     wakeMode = WAKE_MODES[(WAKE_MODES.indexOf(wakeMode) + 1) % WAKE_MODES.length];
     try { localStorage.setItem('lt-wake-mode', wakeMode); } catch { /* storage blocked */ }

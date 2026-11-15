@@ -1477,3 +1477,34 @@ body.in-chat .frame { padding-bottom: calc(env(safe-area-inset-bottom) + 96px); 
 .wake-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--surface-3); transition: background-color 200ms ease; }
 .wake-dots i.cur { background: var(--text-2); }
 .awake-toggle.mode-on .wake-dots i.cur { background: var(--good); }
+
+/* ---------- Recovery card (Today) ---------- */
+.recovery-card .rec-why { margin: 6px 0 0; font-weight: 600; color: var(--text); }
+.rec-advice { margin: 2px 0 14px; font-size: 13px; color: var(--text-3); }
+.ci-btn { margin: 0 auto 12px; width: auto; padding: 10px 18px; }
+.ci-summary {
+  display: inline-flex; align-items: center; gap: 8px; margin: 0 auto 12px; padding: 7px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--text-2); font: inherit; font-size: 13px; font-weight: 600;
+}
+.ci-summary svg { color: var(--goal); }
+.ci-summary i { width: 3px; height: 3px; border-radius: 50%; background: var(--text-3); }
+.ci-summary b { margin-left: 4px; color: var(--goal); font-weight: 700; }
+.today-line {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; text-align: left;
+  padding: 12px 14px; border-radius: 16px; background: var(--surface-2); border: 1px solid var(--line);
+}
+.today-line > span { display: grid; gap: 2px; min-width: 0; font-size: 14px; }
+.today-line small { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.today-line .btn { flex: none; width: auto; margin: 0; padding: 9px 14px; font-size: 14px; }
+.today-line.done { justify-content: flex-start; gap: 8px; color: var(--text-2); }
+.today-line.done svg { color: var(--good); flex: none; }
+
+/* Check-in: 1–5 scales */
+.ci-scale { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.ci-scale label { position: relative; }
+.ci-scale input { position: absolute; opacity: 0; pointer-events: none; }
+.ci-scale span { display: grid; justify-items: center; gap: 2px; padding: 10px 2px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); font-size: 11px; color: var(--text-3); text-align: center; line-height: 1.2; transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
+.ci-scale span b { font-size: 17px; color: var(--text-2); }
+.ci-scale input:checked + span { border-color: color-mix(in srgb, var(--goal) 60%, transparent); background: color-mix(in srgb, var(--goal) 18%, var(--surface-2)); color: var(--text); }
+.ci-scale input:checked + span b { color: var(--text); }
+.ci-scale input:focus-visible + span { outline: 2px solid var(--goal); outline-offset: 2px; }

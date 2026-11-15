@@ -2,12 +2,12 @@
 // otherwise a local "test mode" that saves in this browser only.
 import { firebaseConfig } from './firebase-config.js';
 
-const COLLECTIONS = ['workouts', 'expenses', 'water', 'goals', 'weights', 'routines', 'exercises'];
+const COLLECTIONS = ['workouts', 'expenses', 'water', 'goals', 'weights', 'routines', 'exercises', 'checkins'];
 const DEFAULT_SETTINGS = { budget: 20000, waterGoal: 3000, trainGoal: 45 };
 const FIREBASE_VERSION = '10.12.2';
 
 const emptyData = () => ({
-  workouts: [], expenses: [], water: [], goals: [], weights: [], routines: [], exercises: [], settings: { ...DEFAULT_SETTINGS },
+  workouts: [], expenses: [], water: [], goals: [], weights: [], routines: [], exercises: [], checkins: [], settings: { ...DEFAULT_SETTINGS },
 });
 
 // A preview running on this computer (localhost) always uses test mode,
