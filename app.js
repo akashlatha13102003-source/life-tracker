@@ -524,8 +524,9 @@ function trainView() {
   return `
     ${head('This week', 'Train', live ? '' : addBtn('quick-log', 'Quick log'))}
     ${sectionTabs('train', TRAIN_SECTIONS, trainSection)}
-    <div class="stack section-body" data-sec="${trainSection}">
-      ${live ? liveBanner(live) : trainSection !== 'overview' ? '' : `
+    <div class="stack section-body">
+      <div class="sec-block" data-sec-block="overview">
+      ${live ? liveBanner(live) : `
       <section class="card start-card">
         <div class="tile-icon" style="--c:var(--train);width:52px;height:52px;border-radius:16px">${icon('gym', 26)}</div>
         ${planned ? `<div class="row-main"><div class="eyebrow" style="color:var(--water)">Today's plan${doneToday ? ' · done' : ''}</div><div class="card-title">${esc(planned.name)}</div>
@@ -539,11 +540,12 @@ function trainView() {
         <button class="text-btn" style="margin:6px auto 0;display:flex;align-items:center;gap:6px" data-action="backfill">${icon('calendar', 16)}Log a past gym session</button>
       </section>`}
 
-      ${trainSection === 'overview' ? weekCompareCard() : ''}
+      ${weekCompareCard()}
+      </div>
 
-      ${trainSection === 'body' ? `${muscleMapCard()}${weightCard()}` : ''}
+      <div class="sec-block" data-sec-block="body">${muscleMapCard()}${weightCard()}</div>
 
-      ${trainSection === 'lifts' ? `
+      <div class="sec-block" data-sec-block="lifts">
       <div class="lift-links">
         <button class="card row press" data-action="open-library">
           <div class="tile-icon" style="--c:var(--train)">${icon('list', 20)}</div>
@@ -560,9 +562,10 @@ function trainView() {
           <button class="see-all press" data-action="pbs-all">See all ${Object.keys(best).length}</button></div>
         <div class="pb-strip">${pbs.map(([name, kg]) => `<button class="pb press" data-action="pb-open" data-name="${esc(name)}" aria-label="${esc(titleCase(name))} progress">
           <div class="pb-kg num">${fmtKg(kg)}<small> kg</small></div><div class="pb-name">${esc(titleCase(name))}</div></button>`).join('')}</div>
-      </section>` : ''}` : ''}
+      </section>` : ''}
+      </div>
 
-      ${trainSection === 'history' ? `
+      <div class="sec-block" data-sec-block="history">
       <section class="card" id="days-card">
         <div class="card-head">
           <div class="row-main"><div class="card-title">${isNow ? 'Last 7 days' : esc(rangeLabel)}</div>
@@ -596,46 +599,60 @@ function trainView() {
         <div id="history-list" ${historyOpen ? '' : 'hidden'}>
         ${ws.length ? ws.map((w) => workoutRow(w, false)).join('') : emptyState('train', 'No workouts yet. Start your first session.')}
         </div>
-      </section>` : ''}
+      </section>
+      </div>
     </div>`;
 }
 
 /* ---------- Section tabs: a sticky bar with a sliding pill ---------- */
 
 const TRAIN_SECTIONS = [['overview', 'Overview'], ['body', 'Body'], ['lifts', 'Lifts'], ['history', 'History']];
-let trainSection = (() => { try { const s = localStorage.getItem('lt-train-sec'); return TRAIN_SECTIONS.some(([k]) => k === s) ? s : 'overview'; } catch { return 'overview'; } })();
-let pillFrom = null; // index the pill slides from on the next render
-let sectionDir = 0; // +1 = new section slides in from the right, -1 from the left
+let trainSection = 'overview'; // the part of the Train page currently in view
+let spyLockUntil = 0; // after tapping a tab, let the smooth scroll land before following the scroll again
 
-function switchSection(s) {
-  const order = TRAIN_SECTIONS.map(([k]) => k);
-  if (!order.includes(s) || s === trainSection) return;
-  pillFrom = order.indexOf(trainSection);
-  sectionDir = order.indexOf(s) > pillFrom ? 1 : -1;
+/** Move the highlight to a tab without redrawing the page (the pill slides there). */
+function setActiveSection(s) {
+  const i = TRAIN_SECTIONS.findIndex(([k]) => k === s);
+  if (i < 0) return;
   trainSection = s;
-  try { localStorage.setItem('lt-train-sec', s); } catch { /* storage blocked */ }
-  // If the bar is stuck at the top, keep it there so the new section starts right under it.
-  const sentinel = document.querySelector('[data-sticky-sentinel]');
-  const naturalTop = sentinel ? sentinel.getBoundingClientRect().top + window.scrollY : 0;
-  const wasStuck = sentinel && window.scrollY > naturalTop - 8;
-  render();
-  if (wasStuck) window.scrollTo(0, naturalTop - 8);
+  const slide = document.querySelector('.seg-tabs.slide');
+  if (!slide || Number(slide.style.getPropertyValue('--i')) === i) return;
+  slide.style.setProperty('--i', i);
+  slide.querySelectorAll('[data-action=section]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.s === s)));
 }
 
+/** Tapping a tab glides the page to that section, just under the sticky bar. */
+function switchSection(s) {
+  const block = document.querySelector(`[data-sec-block="${s}"]`);
+  if (!block) return;
+  setActiveSection(s);
+  const bar = document.querySelector('[data-sticky]');
+  const offset = (bar?.offsetHeight ?? 0) + (bar ? parseFloat(getComputedStyle(bar).top) || 0 : 0) + 6;
+  const y = s === TRAIN_SECTIONS[0][0] ? 0 : block.getBoundingClientRect().top + window.scrollY - offset;
+  spyLockUntil = Date.now() + 1000;
+  window.scrollTo({ top: Math.max(0, y), behavior: reduceMotion() ? 'auto' : 'smooth' });
+}
+
+/** Scroll-spy: the last section whose top has passed just below the bar is the current one. */
+function spySection() {
+  if (Date.now() < spyLockUntil) return;
+  const blocks = [...document.querySelectorAll('[data-sec-block]')];
+  if (!blocks.length) return;
+  const bar = document.querySelector('[data-sticky]');
+  const line = (bar ? bar.getBoundingClientRect().bottom : 0) + 80;
+  let current = blocks[0].dataset.secBlock;
+  for (const b of blocks) if (b.getBoundingClientRect().top <= line) current = b.dataset.secBlock;
+  // At the very bottom, the last section counts even if it's short.
+  if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) current = blocks.at(-1).dataset.secBlock;
+  setActiveSection(current);
+}
+// When a smooth scroll finishes, follow the page again straight away.
+window.addEventListener('scrollend', () => { spyLockUntil = 0; spySection(); });
 /* ---------- Scroll effects ---------- */
 
 let revealObserver = null;
-/** After each render: slide the pill, animate a section change, and set up scroll reveals. */
+/** After each render: set up scroll reveals and the sticky bar / highlight for the current scroll position. */
 function afterRender(view) {
-  const slide = view.querySelector('.seg-tabs.slide[data-to]');
-  if (slide && slide.style.getPropertyValue('--i') !== slide.dataset.to) {
-    void slide.offsetWidth; // commit the old position, then let CSS slide the pill
-    slide.style.setProperty('--i', slide.dataset.to);
-  }
-  if (sectionDir && !reduceMotion()) {
-    view.querySelector('.section-body')?.classList.add(sectionDir > 0 ? 'from-right' : 'from-left');
-  }
-  sectionDir = 0;
   // Cards below the screen fade up into place as they scroll into view.
   revealObserver?.disconnect();
   if (!reduceMotion() && 'IntersectionObserver' in window) {
@@ -647,7 +664,7 @@ function afterRender(view) {
         revealObserver.unobserve(en.target);
       }
     }, { rootMargin: '0px 0px -6% 0px' });
-    view.querySelectorAll('.stack > .card, .stack > .stats, .stack > .lift-links').forEach((el) => {
+    view.querySelectorAll('.stack > .card, .stack > .stats, .sec-block > .card, .sec-block > .lift-links').forEach((el) => {
       if (el.getBoundingClientRect().top > window.innerHeight) { el.classList.add('pre'); revealObserver.observe(el); }
     });
   }
@@ -663,9 +680,10 @@ function scrollFx() {
   if (!bar || !sentinel) return;
   const barTop = parseFloat(getComputedStyle(bar).top) || 0;
   bar.classList.toggle('stuck', sentinel.getBoundingClientRect().top < barTop + 1);
+  spySection();
   const limit = bar.getBoundingClientRect().bottom;
   const fade = !reduceMotion();
-  document.querySelectorAll('.section-body > *').forEach((el) => {
+  document.querySelectorAll('.sec-block > *').forEach((el) => {
     const r = el.getBoundingClientRect();
     if (!fade || r.top >= limit - 2) { el.style.opacity = ''; el.style.transform = ''; return; }
     const o = Math.max(0, Math.min(1, (r.bottom - limit) / 160));
@@ -674,15 +692,14 @@ function scrollFx() {
   });
 }
 window.addEventListener('scroll', () => {
+  spySection(); // instant tab highlight (only 4 positions to check)
   if (!scrollTick) { scrollTick = true; requestAnimationFrame(scrollFx); }
 }, { passive: true });
 
 function sectionTabs(group, sections, current) {
-  const to = sections.findIndex(([k]) => k === current);
-  const from = pillFrom ?? to;
-  pillFrom = null;
+  const to = Math.max(0, sections.findIndex(([k]) => k === current));
   return `<div data-sticky-sentinel></div><div class="sticky-tabs" data-sticky>
-    <div class="seg-tabs slide" role="tablist" style="--n:${sections.length};--i:${from}" data-to="${to}">
+    <div class="seg-tabs slide" role="tablist" style="--n:${sections.length};--i:${to}">
       <i class="seg-pill" aria-hidden="true"></i>
       ${sections.map(([k, l]) => `<button class="press" role="tab" data-action="section" data-group="${group}" data-s="${k}" aria-selected="${k === current}">${l}</button>`).join('')}
     </div>
@@ -3687,7 +3704,6 @@ const ACTIONS = {
   'train-today': () => { trainWeeksBack = 0; trainDay = null; render(); },
   'section': (el) => switchSection(el.dataset.s),
   'heatmap-day': (el) => {
-    if (trainSection !== 'history') { pillFrom = TRAIN_SECTIONS.findIndex(([k]) => k === trainSection); sectionDir = 1; trainSection = 'history'; try { localStorage.setItem('lt-train-sec', 'history'); } catch { /* storage blocked */ } }
     jumpToDay(Number(el.dataset.day));
     setTimeout(() => document.getElementById('days-card')?.scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'center' }), 50);
   },

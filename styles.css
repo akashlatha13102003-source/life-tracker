@@ -1213,7 +1213,7 @@ button.mrow { width: 100%; border: 0; border-bottom: 1px solid var(--line); back
 /* ---------- Sticky section bar with a sliding pill ---------- */
 [data-sticky-sentinel] { height: 0; }
 .sticky-tabs {
-  position: sticky; top: env(safe-area-inset-top); z-index: 30;
+  position: sticky; top: env(safe-area-inset-top); z-index: 15; /* above the page, below panels (20+) and the tab bar */
   margin: 0 -16px 14px; padding: 8px 16px 10px;
   transition: background-color 220ms ease, box-shadow 220ms ease;
 }
@@ -1373,3 +1373,7 @@ body.in-chat .frame { padding-bottom: calc(env(safe-area-inset-bottom) + 96px); 
 .hbtn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; }
 .hbtn:first-child { background: color-mix(in srgb, var(--goal) 22%, var(--surface-2)); border-color: color-mix(in srgb, var(--goal) 45%, transparent); }
 .copy-box { width: 100%; padding: 12px; border-radius: 14px; border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text); font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+
+/* ---------- Train: one scrolling page, sections tracked by the bar ---------- */
+.sec-block { display: flex; flex-direction: column; gap: 14px; }
+.section-body { gap: 14px; }
