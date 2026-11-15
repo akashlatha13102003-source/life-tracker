@@ -2241,7 +2241,10 @@ function liveMuscleCard(s) {
   const ids = [...main, ...[...helper].filter((r) => !main.has(r))];
   if (!ids.length) return '';
   const loads = fatigueLoads();
-  const chips = ids.map((r) => { const p = fatiguePct(loads[r]); const z = fatigueZone(p); return `<span class="live-chip ${main.has(r) ? '' : 'helper'}" style="--z:${fatigueFill(Math.max(p, 12))}" title="${z.label}"><i></i>${esc(regionById(r)?.name ?? r)} <b class="num">${p}%</b></span>`; }).join('');
+  const chips = ids.map((r) => {
+    const p = fatiguePct(loads[r]); const z = fatigueZone(p);
+    return `<span class="live-chip ${main.has(r) ? '' : 'helper'}" style="--z:${fatigueFill(p)}" title="${esc(z.label)}"><i></i>${esc(regionById(r)?.name ?? r)} <b class="num">${p}%</b></span>`;
+  }).join('');
   const look = (slug) => {
     const r = SLUG_REGION[slug];
     if (!r || !ids.includes(r.id)) return r ? { cls: '' } : null;
@@ -2254,6 +2257,7 @@ function liveMuscleCard(s) {
     <div class="live-chips">${chips}</div>
     ${liveMapOpen ? `<div class="bodymap live">
       <figure class="bm-fig">${anatomy('front', look)}</figure><figure class="bm-fig">${anatomy('back', look)}</figure></div>
+      <div class="fat-legend center" aria-hidden="true"><span>Ready</span><i style="background:linear-gradient(90deg, ${[0, 15, 30, 45, 60, 80, 100].map((p) => fatigueFill(p)).join(', ')})"></i><span>Fatigued</span></div>
       <p class="map-note" style="text-align:center">Live fatigue: updates with every set you log.</p>` : ''}
   </section>`;
 }

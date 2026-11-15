@@ -1459,3 +1459,4 @@ body.in-chat .frame { padding-bottom: calc(env(safe-area-inset-bottom) + 96px); 
 .hm-chips { flex-wrap: wrap; overflow: visible; gap: 5px; }
 .hm-chip { padding: 3px 8px; font-size: 12.5px; gap: 3px; }
 .hm-chip .rk { width: 14px; height: 14px; }
+.fat-legend.center { justify-content: center; margin-top: 10px; }
