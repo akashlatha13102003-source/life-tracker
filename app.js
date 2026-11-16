@@ -1341,12 +1341,7 @@ function editorBody() {
     </section>`;
     }).join('')}
     <span class="label">Add exercise</span>
-    <div class="field-row">
-      ${field('Exercise', '<input id="ed-new-name" list="ed-names" maxlength="60" placeholder="e.g. Bench press">')}
-      ${field('Muscle', `<select id="ed-new-muscle">${MUSCLES.map((m) => `<option>${esc(m)}</option>`).join('')}</select>`)}
-    </div>
-    ${nameDatalist('ed-names')}
-    <button type="button" class="btn ghost press" style="margin-top:10px" data-action="ed-add-ex">${icon('plus', 18, 2.4)}Add exercise</button>
+    ${exercisePicker('ed')}
     <span class="label">Notes</span>
     ${field('Notes', `<textarea data-ed="notes" rows="2" maxlength="500" placeholder="Optional">${esc(d.notes)}</textarea>`)}
     ${d.id ? `<button type="button" class="btn danger press" style="margin-top:20px" data-action="delete" data-col="workouts" data-id="${esc(d.id)}">${icon('trash', 18)}Delete workout</button>` : ''}`;
@@ -1760,6 +1755,84 @@ function planDaySheet(i) {
   }, 'Save', 'var(--water)');
 }
 
+/* ---------- Exercise picker: pick a muscle, tap an exercise (or search / add your own) ---------- */
+// Used by the routine editor ("rt") and the past-workout editor ("ed"). Keeps its muscle + search across redraws.
+const pickerState = { rt: { muscle: 'Chest', q: '' }, ed: { muscle: 'Chest', q: '' } };
+const pickerDraft = (p) => (p === 'rt' ? routineDraft : editDraft);
+
+function pickerList(p) {
+  const st = pickerState[p];
+  const draft = pickerDraft(p);
+  const added = new Set((draft?.exercises ?? []).map((e) => normName(e.name)));
+  const words = searchKey(st.q).split(' ').filter(Boolean);
+  let items;
+  if (words.length) {
+    // Search everything: your own + built-in names, then the photo library.
+    const seen = new Set();
+    const pool = [
+      ...MUSCLES.flatMap((m) => exercisesFor(m).map((n) => ({ name: n, muscle: m }))),
+      ...(exDb ? exDb.list.map((e) => ({ name: e.n, muscle: dbGroup(e) })) : []),
+    ];
+    items = pool.filter((x) => {
+      const k = normName(x.name);
+      if (seen.has(k) || !words.every((w) => searchKey(`${x.name} ${x.muscle}`).includes(w))) return false;
+      seen.add(k); return true;
+    }).slice(0, 30);
+  } else {
+    items = exercisesFor(st.muscle).map((n) => ({ name: n, muscle: st.muscle }));
+  }
+  const typed = clean(st.q, 60);
+  const exact = typed && items.some((x) => normName(x.name) === normName(typed));
+  const custom = typed && !exact ? `<button type="button" class="pick-row-ex custom press" data-action="pick-ex" data-p="${p}" data-name="${esc(typed.charAt(0).toUpperCase() + typed.slice(1))}" data-muscle="${esc(st.muscle)}">
+      <span class="pe-plus">${icon('plus', 15, 2.6)}</span><span class="pe-name">Add “${esc(typed)}” as a new exercise</span><span class="pe-mus">${esc(st.muscle)}</span></button>` : '';
+  const rows = items.map((x) => {
+    const has = added.has(normName(x.name));
+    return `<button type="button" class="pick-row-ex press" data-action="pick-ex" data-p="${p}" data-name="${esc(x.name)}" data-muscle="${esc(x.muscle)}" ${has ? 'disabled' : ''}>
+      <span class="pe-name">${esc(x.name)}</span>${words.length ? `<span class="pe-mus">${esc(x.muscle)}</span>` : ''}<span class="pe-end">${has ? icon('check', 16, 2.6) : icon('plus', 16, 2.4)}</span></button>`;
+  }).join('');
+  // Matches first; "add as new" goes at the end (or alone when nothing matches).
+  return rows || custom ? rows + custom : '<p class="muted small" style="margin:10px 4px">No matches.</p>';
+}
+
+function exercisePicker(p) {
+  if (!exDb) loadExDb();
+  const st = pickerState[p];
+  return `<div class="ex-picker">
+    <div class="muscle-chips" role="group" aria-label="Muscle">${MUSCLES.map((m) => `
+      <button type="button" class="fchip press" data-action="pick-muscle" data-p="${p}" data-m="${esc(m)}" aria-pressed="${!st.q && st.muscle === m}">${esc(m)}</button>`).join('')}</div>
+    <label class="search picker-search">${icon('search', 16)}
+      <input id="${p}-pick-q" type="search" value="${esc(st.q)}" placeholder="Search or type a new exercise" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" aria-label="Search exercises"></label>
+    <div class="ex-picker-list" id="${p}-pick-list">${pickerList(p)}</div>
+  </div>`;
+}
+
+/** Add a picked exercise to the routine or workout being edited. */
+function pickExercise(p, name, muscle) {
+  const draft = pickerDraft(p);
+  if (!draft) return;
+  if (draft.exercises.some((e) => normName(e.name) === normName(name))) return;
+  const m = MUSCLES.includes(muscle) ? muscle : guessMuscle(name) ?? pickerState[p].muscle;
+  if (p === 'rt') {
+    draft.exercises.push({ name, muscle: m, sets: 3, reps: m === 'Cardio' ? 20 : 10 });
+  } else {
+    const last = lastPerformance(name, draft.id);
+    draft.exercises.push({ name, muscle: m, sets: last ? last.sets.map((s) => ({ kg: s.kg || 0, reps: s.reps || 0 })) : [{ kg: 0, reps: 10 }] });
+  }
+  pickerState[p].q = '';
+  if (p === 'rt') rerenderRoutine(); else rerenderEditor();
+  toast(`${name} added`);
+}
+
+// Search as you type: redraw only the list, so the keyboard stays up.
+document.addEventListener('input', (e) => {
+  const m = e.target.id?.match(/^(rt|ed)-pick-q$/);
+  if (!m) return;
+  pickerState[m[1]].q = e.target.value;
+  const list = document.getElementById(`${m[1]}-pick-list`);
+  if (list) list.innerHTML = pickerList(m[1]);
+  document.querySelectorAll(`[data-action=pick-muscle][data-p="${m[1]}"]`).forEach((b) => b.setAttribute('aria-pressed', String(!e.target.value && b.dataset.m === pickerState[m[1]].muscle)));
+});
+
 /* ---------- Routine editor ---------- */
 
 let routineDraft = null;
@@ -1792,12 +1865,7 @@ function routineBody() {
       <button type="button" class="x-btn press" data-action="rt-del-ex" data-i="${i}" aria-label="Remove ${esc(e.name)}">${icon('x', 16)}</button>
     </div>`).join('') : emptyState('gym', 'Add the exercises for this routine below.')}</section>
     <span class="label">Add exercise</span>
-    <div class="field-row">
-      ${field('Exercise', '<input id="rt-new-name" list="rt-names" maxlength="60" placeholder="e.g. Squat">')}
-      ${field('Muscle', `<select id="rt-new-muscle">${MUSCLES.map((m) => `<option>${esc(m)}</option>`).join('')}</select>`)}
-    </div>
-    ${nameDatalist('rt-names')}
-    <button type="button" class="btn ghost press" style="margin-top:10px" data-action="rt-add-ex">${icon('plus', 18, 2.4)}Add exercise</button>
+    ${exercisePicker('rt')}
     ${d.id ? `<button type="button" class="btn danger press" style="margin-top:20px" data-action="routine-del" data-id="${esc(d.id)}">${icon('trash', 18)}Delete routine</button>` : ''}`;
 }
 
@@ -3930,6 +3998,14 @@ const ACTIONS = {
     if (navigator.vibrate) navigator.vibrate(8);
   },
   'session-pause': () => pauseSession(),
+  'pick-ex': (el) => pickExercise(el.dataset.p, el.dataset.name, el.dataset.muscle),
+  'pick-muscle': (el) => {
+    const p = el.dataset.p;
+    pickerState[p] = { muscle: el.dataset.m, q: '' };
+    const input = document.getElementById(`${p}-pick-q`); if (input) input.value = '';
+    const list = document.getElementById(`${p}-pick-list`); if (list) { list.innerHTML = pickerList(p); list.scrollTop = 0; }
+    document.querySelectorAll(`[data-action=pick-muscle][data-p="${p}"]`).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === el.dataset.m)));
+  },
   'checkin': () => checkinSheet(),
   'sleep-start': () => startSleep(),
   'sleep-wake': () => wakeUp(),
