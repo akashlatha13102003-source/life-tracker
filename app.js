@@ -4494,6 +4494,21 @@ async function connectWhoop() {
   } catch (err) { toast(`Couldn’t start WHOOP: ${err.message}`, true); }
 }
 
+/**
+ * A WHOOP day ("cycle") starts when you fall asleep. Someone who sleeps at 11 pm starts this morning's
+ * cycle yesterday evening, so each cycle is dated by the morning it belongs to: its start + 12 hours.
+ * (11 pm → 11 am today; 1 am → 1 pm today.) If two cycles land on one day, the later one wins.
+ */
+function whoopByMorning(days) {
+  const out = new Map();
+  for (const d of days) {
+    const day = Number.isFinite(d.start) ? dayKey(d.start + 12 * 3600000) : d.day;
+    const prev = out.get(day);
+    if (!prev || (d.start ?? 0) > (prev.start ?? 0)) out.set(day, { ...d, day });
+  }
+  return [...out.values()];
+}
+
 let whoopSyncing = false;
 async function syncWhoop(quiet = true) {
   if (!whoopBase() || viewing || whoopSyncing) return;
@@ -4507,9 +4522,16 @@ async function syncWhoop(quiet = true) {
     }
     const have = new Map((data().whoop ?? []).map((x) => [x.id, x]));
     const strip = ({ id, ...rest }) => JSON.stringify(rest);
-    for (const day of res.days ?? []) {
+    const days = whoopByMorning(res.days ?? []);
+    for (const day of days) {
       const old = have.get(day.day);
       if (!old || strip(old) !== JSON.stringify(day)) await store.set('whoop', day.day, day);
+    }
+    // Rows saved earlier under the wrong date (same WHOOP cycle, different day) are removed.
+    const fixed = new Map(days.map((d) => [d.start, d.day]));
+    const written = new Set(days.map((d) => d.day));
+    for (const old of have.values()) {
+      if (fixed.has(old.start) && fixed.get(old.start) !== old.id && !written.has(old.id)) await store.remove('whoop', old.id);
     }
     await store.saveSettings({ whoop: { connected: true, lastSync: Date.now() } });
     if (!quiet) toast('WHOOP synced');

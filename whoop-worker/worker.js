@@ -128,7 +128,7 @@ async function whoopGet(access, path) {
   return res.json();
 }
 
-// The last ~10 days, one row per WHOOP day (a WHOOP "cycle" starts when you wake up).
+// The last ~10 days, one row per WHOOP cycle. A cycle starts when you fall asleep; the app dates it by the morning it belongs to.
 async function recentDays(access) {
   const q = '?limit=10';
   const [cycles, recoveries, sleeps, workouts] = await Promise.all([
