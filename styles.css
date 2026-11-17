@@ -626,6 +626,9 @@ svg { display: block; flex: none; }
   font-size: 16px;
   padding: 3px 0 1px;
 }
+.pw-field { position: relative; padding-right: 52px; }
+.pw-toggle { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; display: grid; place-items: center; border: 0; background: none; color: var(--text-2); border-radius: 10px; }
+.pw-toggle[aria-pressed="true"] { color: var(--text); }
 .field select { appearance: none; -webkit-appearance: none; }
 .field textarea { resize: none; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

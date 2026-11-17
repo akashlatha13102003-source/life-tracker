@@ -57,6 +57,8 @@ const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)')
 /* ================= Icons (simple line set) ================= */
 
 const ICONS = {
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="M3 3l18 18M10.6 6.1A9.6 9.6 0 0 1 12 6c6 0 9.5 6 9.5 6a17 17 0 0 1-3 3.7M6.5 7.6A16.5 16.5 0 0 0 2.5 12s3.5 6 9.5 6a9 9 0 0 0 4.3-1.1M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
   today: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
   people: '<circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16.5 14.2c2.4.2 4 1.7 4.5 4.3"/>',
   train: '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/>',
@@ -4333,7 +4335,8 @@ function renderLogin(message = '', mode = 'signin', keep = {}) {
       <form id="login-form" novalidate>
         <label class="field"><span>Email</span><input name="email" type="email" autocomplete="${signup ? 'email' : 'username'}" inputmode="email" autocapitalize="off" spellcheck="false" value="${esc(keep.email ?? '')}" required></label>
         ${signup ? `<label class="field"><span>Type your email again</span><input name="email2" type="email" autocomplete="off" inputmode="email" autocapitalize="off" spellcheck="false" required></label>` : ''}
-        <label class="field"><span>Password</span><input name="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" required></label>
+        <label class="field pw-field"><span>Password</span><input name="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" autocapitalize="off" spellcheck="false" required>
+          <button type="button" class="pw-toggle press" id="pw-toggle" aria-label="Show password" aria-pressed="false">${icon('eye', 20)}</button></label>
         <p class="error" id="login-error">${esc(message)}</p>
         ${signup
           ? `<button class="btn press" type="submit">Create account</button>
@@ -4350,6 +4353,17 @@ function renderLogin(message = '', mode = 'signin', keep = {}) {
   const errorEl = document.getElementById('login-error');
   const values = () => ({ email: clean(form.email.value, 120), password: form.password.value });
   const busy = (on) => form.querySelectorAll('button').forEach((b) => { b.disabled = on; });
+
+  // Show / hide the password so people can check what they typed.
+  const pwToggle = document.getElementById('pw-toggle');
+  pwToggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    const show = form.password.type === 'password';
+    form.password.type = show ? 'text' : 'password';
+    pwToggle.innerHTML = icon(show ? 'eyeOff' : 'eye', 20);
+    pwToggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    pwToggle.setAttribute('aria-pressed', String(show));
+  });
 
   document.getElementById('mode-btn').addEventListener('click', () => {
     renderLogin('', signup ? 'signin' : 'signup', { email: values().email });
