@@ -1733,7 +1733,7 @@ function planView() {
         <div class="goal-top"><div class="row-main"><div class="row-title">${esc(r.name)}</div>
           <div class="row-sub">${esc(routineMuscles(r).join(' · '))}</div></div>
           <span class="faint">${icon('right', 18)}</span></div>
-        <div class="routine-ex">${r.exercises.slice(0, 4).map((e) => `<span>${esc(e.name)} <b class="num">${e.sets} × ${e.reps}</b></span>`).join('')}${r.exercises.length > 4 ? `<span class="faint">+${r.exercises.length - 4} more</span>` : ''}</div>
+        <div class="routine-ex">${r.exercises.slice(0, 4).map((e) => `<span>${esc(e.name)} <b class="num">${e.sets} × ${repsText(e)}</b></span>`).join('')}${r.exercises.length > 4 ? `<span class="faint">+${r.exercises.length - 4} more</span>` : ''}</div>
         <div class="goal-meta"><span class="num">${plural(r.exercises.length, 'exercise')} · ${plural(routineSets(r), 'set')}</span><span>${onDays.length ? esc(onDays.join(', ')) : 'Not scheduled'}</span></div>
       </button>`;
     }).join('')}
@@ -1821,7 +1821,7 @@ function pickExercise(p, name, muscle) {
   if (draft.exercises.some((e) => normName(e.name) === normName(name))) return;
   const m = MUSCLES.includes(muscle) ? muscle : guessMuscle(name) ?? pickerState[p].muscle;
   if (p === 'rt') {
-    draft.exercises.push({ name, muscle: m, sets: 3, reps: m === 'Cardio' ? 20 : 10 });
+    draft.exercises.push({ name, muscle: m, sets: 3, reps: m === 'Cardio' ? 20 : 10, repsList: Array(3).fill(m === 'Cardio' ? 20 : 10) });
   } else {
     const last = lastPerformance(name, draft.id);
     draft.exercises.push({ name, muscle: m, sets: last ? last.sets.map((s) => ({ kg: s.kg || 0, reps: s.reps || 0 })) : [{ kg: 0, reps: 10 }] });
@@ -1843,6 +1843,20 @@ document.addEventListener('input', (e) => {
 
 /* ---------- Routine editor ---------- */
 
+/** Reps for every set of a routine exercise, e.g. [15, 12, 10, 8]. Old routines have one number for all sets. */
+const setCount = (e) => Math.min(10, Math.max(1, Math.round(num(e.sets)) || 1));
+function repsPerSet(e) {
+  const n = setCount(e);
+  const list = Array.isArray(e.repsList) ? e.repsList : [];
+  const base = e.reps ?? 10;
+  return Array.from({ length: n }, (_, j) => list[j] ?? list[list.length - 1] ?? base);
+}
+/** "10" when every set is the same, "15·12·10·8" when they differ. */
+const repsText = (e) => {
+  const list = repsPerSet(e).map((r) => Math.round(num(r)) || 0);
+  return list.every((r) => r === list[0]) ? String(list[0]) : list.join('·');
+};
+
 let routineDraft = null;
 
 function routineEditor(id, forDay = null) {
@@ -1851,7 +1865,7 @@ function routineEditor(id, forDay = null) {
     id: r?.id ?? null,
     forDay,
     name: r?.name ?? '',
-    exercises: (r?.exercises ?? []).map((e) => ({ ...e })),
+    exercises: (r?.exercises ?? []).map((e) => ({ ...e, repsList: repsPerSet(e) })),
   };
   openSheet(r ? 'Edit routine' : 'New routine', routineBody(), () => saveRoutine(), 'Save', 'var(--water)');
 }
@@ -1860,21 +1874,27 @@ function routineBody() {
   const d = routineDraft;
   return `
     ${field('Routine name', `<input data-rt="name" maxlength="40" placeholder="e.g. Push day" value="${esc(d.name)}">`)}
-    <span class="label">Exercises · sets × reps</span>
-    <section class="card">${d.exercises.length ? d.exercises.map((e, i) => `<div class="rt-ex">
+    <span class="label">Exercises · sets and reps for each set</span>
+    <section class="card">${d.exercises.length ? d.exercises.map((e, i) => `<div class="rt-item"><div class="rt-ex">
       <div class="row-main"><div class="row-title">${esc(e.name)}</div><div class="row-sub">${esc(e.muscle)}</div></div>
       <input class="num" data-rt-ex="${i}:sets" inputmode="numeric" value="${esc(e.sets)}" aria-label="Sets for ${esc(e.name)}">
-      <span class="faint small">×</span>
-      <input class="num" data-rt-ex="${i}:reps" inputmode="numeric" value="${esc(e.reps)}" aria-label="${e.muscle === 'Cardio' ? 'Minutes' : 'Reps'} for ${esc(e.name)}">
+      <span class="faint small">sets</span>
       <div class="rt-move">
         <button type="button" class="x-btn press" data-action="rt-move" data-i="${i}" data-d="-1" aria-label="Move ${esc(e.name)} up" ${i === 0 ? 'disabled' : ''}>${icon('up', 15)}</button>
         <button type="button" class="x-btn press" data-action="rt-move" data-i="${i}" data-d="1" aria-label="Move ${esc(e.name)} down" ${i === d.exercises.length - 1 ? 'disabled' : ''}>${icon('down', 15)}</button>
       </div>
       <button type="button" class="x-btn press" data-action="rt-del-ex" data-i="${i}" aria-label="Remove ${esc(e.name)}">${icon('x', 16)}</button>
-    </div>`).join('') : emptyState('gym', 'Add the exercises for this routine below.')}</section>
+    </div><div class="rt-reps" data-rt-reps-row="${i}">${repBoxes(e, i)}</div></div>`).join('') : emptyState('gym', 'Add the exercises for this routine below.')}</section>
     <span class="label">Add exercise</span>
     ${exercisePicker('rt')}
     ${d.id ? `<button type="button" class="btn danger press" style="margin-top:20px" data-action="routine-del" data-id="${esc(d.id)}">${icon('trash', 18)}Delete routine</button>` : ''}`;
+}
+
+/** One small box per set: Set 1 [15]  Set 2 [12] ... */
+function repBoxes(e, i) {
+  const unit = e.muscle === 'Cardio' ? 'min' : 'reps';
+  return `<span class="rt-reps-lbl">${unit}</span>${repsPerSet(e).map((r, j) => `<label class="rt-rep"><small>${j + 1}</small>
+    <input class="num" data-rt-rep="${i}:${j}" inputmode="numeric" value="${esc(r)}" aria-label="Set ${j + 1} ${unit} for ${esc(e.name)}"></label>`).join('')}`;
 }
 
 function rerenderRoutine() {
@@ -1890,11 +1910,11 @@ function saveRoutine() {
   if (!d) return false;
   const name = clean(d.name, 40);
   if (!name) { toast('Give the routine a name', true); return false; }
-  const exercises = d.exercises.map((e) => ({
-    name: e.name, muscle: e.muscle,
-    sets: Math.min(10, Math.max(1, Math.round(num(e.sets)) || 1)),
-    reps: Math.min(100, Math.max(1, Math.round(num(e.reps)) || 1)),
-  }));
+  const exercises = d.exercises.map((e) => {
+    const list = repsPerSet(e).map((r) => Math.min(100, Math.max(1, Math.round(num(r)) || 1)));
+    const same = list.every((r) => r === list[0]);
+    return { name: e.name, muscle: e.muscle, sets: list.length, reps: list[0], ...(same ? {} : { repsList: list }) };
+  });
   if (!exercises.length) { toast('Add at least one exercise', true); return false; }
   if (d.id) write(store.update('routines', d.id, { name, exercises }), 'Routine saved');
   else {
@@ -1916,7 +1936,20 @@ document.addEventListener('input', (e) => {
   else if (t.dataset.rtEx) {
     const [i, f] = t.dataset.rtEx.split(':');
     const ex = routineDraft.exercises[Number(i)];
-    if (ex) ex[f] = t.value;
+    if (!ex) return;
+    ex[f] = t.value;
+    if (f === 'sets' && Math.round(num(t.value)) > 0) {
+      ex.repsList = repsPerSet(ex);
+      const row = document.querySelector(`[data-rt-reps-row="${i}"]`);
+      if (row) row.innerHTML = repBoxes(ex, Number(i));
+    }
+  } else if (t.dataset.rtRep) {
+    const [i, j] = t.dataset.rtRep.split(':').map(Number);
+    const ex = routineDraft.exercises[i];
+    if (!ex) return;
+    ex.repsList = repsPerSet(ex);
+    ex.repsList[j] = t.value;
+    if (j === 0) ex.reps = t.value;
   } else if (t.id === 'rt-new-name') {
     const m = guessMuscle(t.value);
     const sel = document.getElementById('rt-new-muscle');
@@ -1932,7 +1965,7 @@ function startRoutine(id) {
   write(store.add('workouts', {
     at: Date.now(), type: 'Gym', status: 'active', routine: r.name, routineId: r.id,
     muscles: routineMuscles(r),
-    exercises: r.exercises.map((e) => ({ name: e.name, muscle: e.muscle, sets: [], target: { sets: e.sets, reps: e.reps } })),
+    exercises: r.exercises.map((e) => ({ name: e.name, muscle: e.muscle, sets: [], target: { sets: e.sets, reps: e.reps, ...(e.repsList ? { repsList: e.repsList } : {}) } })),
     minutes: 0, intensity: 'Medium', calories: 0, steps: 0, notes: '',
   }), `${r.name} started`);
   route = 'session';
@@ -2693,7 +2726,7 @@ function aiContext() {
   const days = planDays();
   if (days.some(Boolean)) {
     L.push('', '## Weekly plan', DAY_NAMES.map((n, i) => `${n}: ${routineById(days[i])?.name ?? 'rest'}`).join(', '));
-    for (const r of sortedRoutines()) L.push(`- ${r.name}: ${r.exercises.map((e) => `${e.name} ${e.sets}×${e.reps}`).join(', ')}`);
+    for (const r of sortedRoutines()) L.push(`- ${r.name}: ${r.exercises.map((e) => `${e.name} ${e.sets}×${repsText(e)}`).join(', ')}`);
   } else L.push('', '## Weekly plan', 'No plan set up yet.');
 
   const wts = sortedWeights();
@@ -3079,7 +3112,8 @@ function sessionView() {
     const lastSet = sets[sets.length - 1] ?? last?.sets?.[0];
     const draft = drafts[`${s.id}:${i}`] ?? {};
     const kgVal = draft.kg ?? (lastSet ? fmtKg(lastSet.kg || 0) : '');
-    const repsVal = draft.reps ?? (lastSet ? String(lastSet.reps || '') : String(e.target?.reps ?? 10));
+    const planReps = e.target?.repsList?.[sets.length];
+    const repsVal = draft.reps ?? (planReps != null ? String(planReps) : lastSet ? String(lastSet.reps || '') : String(e.target?.reps ?? 10));
     const goalSets = e.target?.sets;
     const topKg = Math.max(0, ...sets.map((x) => x.kg || 0));
     const isPr = !cardio && topKg > 0 && topKg > (prev[normName(e.name)] ?? 0) && prev[normName(e.name)] !== undefined;
@@ -3100,7 +3134,7 @@ function sessionView() {
       <div class="ex-head">
         <div class="row-main">
           <div class="row-title">${esc(e.name)}</div>
-          <div class="row-sub">${esc(e.muscle ?? '')}${goalSets ? ` · Plan: ${goalSets} × ${esc(e.target.reps)}` : ''}${cardio && last ? ` · Last: ${esc(summariseSets(last.ex, last.sets))}` : ''}</div>
+          <div class="row-sub">${esc(e.muscle ?? '')}${goalSets ? ` · Plan: ${goalSets} × ${esc(repsText(e.target))}` : ''}${cardio && last ? ` · Last: ${esc(summariseSets(last.ex, last.sets))}` : ''}</div>
         </div>
         ${isPr ? `<span class="pr-badge">${icon('trophy', 13, 2.2)}New PR</span>` : ''}
         <button class="x-btn press" data-action="how-to" data-name="${esc(e.name)}" data-muscle="${esc(e.muscle ?? '')}" aria-label="How to do ${esc(e.name)}">${icon('info', 18)}</button>
@@ -4170,7 +4204,7 @@ const ACTIONS = {
     const name = allExerciseNames().find((n) => normName(n) === normName(raw)) ?? raw.charAt(0).toUpperCase() + raw.slice(1);
     if (routineDraft.exercises.some((e) => normName(e.name) === normName(name))) { toast(`${name} is already in this routine`, true); return; }
     const sel = document.getElementById('rt-new-muscle')?.value;
-    routineDraft.exercises.push({ name, muscle: MUSCLES.includes(sel) ? sel : 'Chest', sets: 3, reps: sel === 'Cardio' ? 20 : 10 });
+    routineDraft.exercises.push({ name, muscle: MUSCLES.includes(sel) ? sel : 'Chest', sets: 3, reps: sel === 'Cardio' ? 20 : 10, repsList: Array(3).fill(sel === 'Cardio' ? 20 : 10) });
     rerenderRoutine();
   },
   'rt-del-ex': (el) => { routineDraft?.exercises.splice(Number(el.dataset.i), 1); rerenderRoutine(); },
