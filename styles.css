@@ -1560,6 +1560,8 @@ body.in-chat .frame { padding-bottom: calc(env(safe-area-inset-bottom) + 96px); 
 /* ---------- Members console (owner only) ---------- */
 .members-lead { display: flex; align-items: center; gap: 6px; margin: 0 2px 12px; }
 .members { gap: 10px; }
+.plan-sync { display: flex; flex-direction: column; gap: 4px; }
+.plan-sync .eyebrow { display: flex; align-items: center; gap: 5px; }
 .routine-wrap { position: relative; }
 .routine-wrap .goal-meta { padding-right: 84px; }
 .routine-share { position: absolute; right: 10px; bottom: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); color: var(--water); font: inherit; font-size: 13px; font-weight: 600; }

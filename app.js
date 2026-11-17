@@ -556,7 +556,7 @@ function trainView() {
         <button class="btn tint press" style="--c:var(--train);margin-top:14px" data-action="start-routine" data-id="${esc(planned.id)}">${icon('bolt', 18, 2.2)}Start ${esc(planned.name)}</button>
         <button class="btn ghost press" style="margin-top:10px" data-action="start-session">${icon('gym', 18)}Pick muscles instead</button>`
         : `<div class="row-main"><div class="card-title">Gym session</div>
-          <div class="card-sub">${sortedRoutines().length ? 'Rest day in your plan. Train anyway, or pick a routine.' : "Pick today's muscles, then log every set as you go."}</div></div>
+          <div class="card-sub">${planDays()[dayIndex()] === 'rest' ? 'Rest day in your plan. Train anyway, or pick a routine.' : sortedRoutines().length ? 'Nothing planned today. Start a workout, then save it to your plan.' : "Pick today's muscles, then log every set as you go."}</div></div>
         <button class="btn tint press" style="--c:var(--train);margin-top:14px" data-action="start-session">${icon('bolt', 18, 2.2)}Start workout</button>`}
         <button class="btn ghost press" style="margin-top:10px" data-action="quick-log">${icon('run', 18)}Log run, walk, yoga…</button>
         <button class="text-btn" style="margin:6px auto 0;display:flex;align-items:center;gap:6px" data-action="backfill">${icon('calendar', 16)}Log a past gym session</button>
@@ -1667,7 +1667,11 @@ const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satu
 const dayIndex = (t = Date.now()) => (new Date(t).getDay() + 6) % 7; // Monday = 0
 const sortedRoutines = () => [...(data().routines ?? [])].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
 const routineById = (id) => (id ? (data().routines ?? []).find((r) => r.id === id) ?? null : null);
-const planDays = () => { const p = data().settings.plan?.days; return Array.from({ length: 7 }, (_, i) => (Array.isArray(p) && routineById(p[i]) ? p[i] : null)); };
+// Each weekday is a routine id, 'rest' (a rest day you chose), or null (nothing planned yet).
+const planDays = () => { const p = data().settings.plan?.days; return Array.from({ length: 7 }, (_, i) => (!Array.isArray(p) ? null : p[i] === 'rest' ? 'rest' : routineById(p[i]) ? p[i] : null)); };
+/** The gym workout you finished on a date (latest first), if it has exercises. */
+const gymWorkoutOn = (date) => doneWorkouts().filter((w) => sameDay(w.at, date) && (w.exercises ?? []).some((e) => exSets(e).some((x) => x.reps > 0))).sort((a, b) => b.at - a.at)[0] ?? null;
+const workoutLabel = (w) => w.routine || (w.muscles ?? []).join(' & ') || 'Workout';
 const todaysRoutine = () => routineById(planDays()[dayIndex()]);
 const routineMuscles = (r) => [...new Set((r?.exercises ?? []).map((e) => e.muscle))];
 const routineSets = (r) => sum(r?.exercises ?? [], (e) => e.sets);
@@ -1693,21 +1697,28 @@ function planView() {
       <span class="label">This week</span>
       ${days.map((id, i) => {
         const r = routineById(id);
+        const rest = id === 'rest';
         const date = new Date(weekStart); date.setDate(weekStart.getDate() + i);
         const today = isToday(date);
         const done = ws.some((w) => sameDay(w.at, date));
         const past = date < startOfDay() && !today;
+        // Trained on a day with no routine planned: show what you did, and offer to save it to the plan.
+        const unplannedGym = !r ? gymWorkoutOn(date) : null;
         const end = done ? `<span class="status" style="--s:var(--good)">${icon('check', 15, 2.4)}Done</span>`
           : today ? '<span class="pill">Today</span>' : past && r ? '<span class="faint small">Missed</span>' : `<span class="faint">${icon('right', 18)}</span>`;
+        const [ic, color, title, sub] = r ? ['gym', 'var(--water)', r.name, `${routineMuscles(r).join(' · ')} · ${plural(r.exercises.length, 'exercise')}`]
+          : unplannedGym ? ['gym', 'var(--good)', workoutLabel(unplannedGym), 'Not in your plan · tap to save it']
+            : rest ? ['moon', 'var(--text-3)', 'Rest day', 'Recover and come back stronger']
+              : ['plus', 'var(--text-3)', today ? 'Plan today' : 'Not planned', 'Tap to pick a routine'];
         return `<button class="card row plan-day press ${today ? 'is-today' : ''}" data-action="plan-day" data-i="${i}">
           <div class="plan-dow"><b>${DAY_NAMES[i].slice(0, 2)}</b><small class="num">${date.getDate()}</small></div>
-          <div class="tile-icon" style="--c:${r ? 'var(--water)' : 'var(--text-3)'}">${icon(r ? 'gym' : 'moon', 19)}</div>
-          <div class="row-main"><div class="row-title">${esc(r?.name ?? 'Rest day')}</div>
-            <div class="row-sub">${r ? esc(`${routineMuscles(r).join(' · ')} · ${plural(r.exercises.length, 'exercise')}`) : 'Tap to plan something'}</div></div>
+          <div class="tile-icon" style="--c:${color}">${icon(ic, 19)}</div>
+          <div class="row-main"><div class="row-title">${esc(title)}</div>
+            <div class="row-sub">${esc(sub)}</div></div>
           <div class="row-end">${end}</div>
         </button>`;
       }).join('')}
-      ${todaysRoutine() && !activeSession() && !viewing ? `<button class="btn tint press" style="--c:var(--train);margin-top:4px" data-action="start-routine" data-id="${esc(todaysRoutine().id)}">${icon('bolt', 18, 2.2)}Start today: ${esc(todaysRoutine().name)}</button>` : ''}`;
+      ${todaysRoutine() && !activeSession() && !viewing && !ws.some((w) => isToday(w.at)) ? `<button class="btn tint press" style="--c:var(--train);margin-top:4px" data-action="start-routine" data-id="${esc(todaysRoutine().id)}">${icon('bolt', 18, 2.2)}Start today: ${esc(todaysRoutine().name)}</button>` : ''}`;
   } else {
     body = routines.length ? `${routines.map((r) => {
       const onDays = days.map((id, i) => (id === r.id ? DAY_NAMES[i].slice(0, 3) : null)).filter(Boolean);
@@ -1725,6 +1736,26 @@ function planView() {
     <div class="stack">${tabs}${body}</div>`;
 }
 
+/** Turns a finished workout into a routine (same exercises, sets and reps per set) and puts it on weekday i. */
+function planFromWorkout(i, wid) {
+  const w = data().workouts.find((x) => x.id === wid);
+  if (!w) return;
+  const exercises = (w.exercises ?? []).map((e) => {
+    const reps = exSets(e).filter((x) => x.reps > 0).map((x) => Math.min(100, Math.max(1, Math.round(x.reps))));
+    if (!reps.length) return null;
+    const same = reps.every((r) => r === reps[0]);
+    return { name: e.name, muscle: e.muscle, sets: Math.min(10, reps.length), reps: reps[0], ...(same ? {} : { repsList: reps.slice(0, 10) }) };
+  }).filter(Boolean);
+  if (!exercises.length) { toast('That workout has no sets to copy', true); return; }
+  let name = workoutLabel(w).slice(0, 34);
+  if (sortedRoutines().some((r) => r.name === name)) name = `${name} (${DAY_NAMES[i].slice(0, 3)})`;
+  const id = makeId();
+  const days = planDays(); days[i] = id;
+  write(store.set('routines', id, { name, exercises, createdAt: Date.now() }));
+  write(store.saveSettings({ plan: { days } }), `Saved as your ${DAY_NAMES[i]} routine`);
+  closeSheet();
+}
+
 function planDaySheet(i) {
   const days = planDays();
   const routines = sortedRoutines();
@@ -1733,15 +1764,25 @@ function planDaySheet(i) {
       <div class="tile-icon" style="--c:${value ? 'var(--water)' : 'var(--text-3)'}">${icon(iconName, 19)}</div>
       <div class="row-main"><div class="row-title">${esc(title)}</div><div class="row-sub">${esc(sub)}</div></div>
       <span class="pick-check">${icon('check', 18, 2.6)}</span></label>`;
+  const date = startOfWeek(); date.setDate(date.getDate() + i);
+  const w = gymWorkoutOn(date);
+  const wExs = (w?.exercises ?? []).filter((e) => exSets(e).some((x) => x.reps > 0));
   openSheet(DAY_NAMES[i], `
-    <p class="muted small" style="margin:0 0 12px">Pick what you train every ${DAY_NAMES[i]}.</p>
-    <section class="card">${option('', 'Rest day', 'Recover and come back stronger', 'moon')}
+    ${w ? `<section class="card plan-sync">
+      <div class="eyebrow" style="color:var(--good)">${icon('check', 13, 2.6)} You trained ${isToday(date) ? 'today' : `on ${esc(DAY_NAMES[i])}`}</div>
+      <div class="row-title">${esc(workoutLabel(w))}</div>
+      <div class="row-sub">${esc(wExs.map((e) => e.name).slice(0, 4).join(' · '))}${wExs.length > 4 ? ` +${wExs.length - 4} more` : ''}</div>
+      <button type="button" class="btn tint press" style="--c:var(--good);margin-top:12px" data-action="plan-from-workout" data-i="${i}" data-w="${esc(w.id)}">${icon('down', 18, 2.2)}Save this workout as my ${esc(DAY_NAMES[i])} routine</button>
+    </section>` : ''}
+    <p class="muted small" style="margin:${w ? '16px' : '0'} 0 12px">${w ? 'Or pick' : 'Pick'} what you train every ${DAY_NAMES[i]}.</p>
+    <section class="card">${option('', 'Not planned', 'Decide on the day', 'plus')}
+      ${option('rest', 'Rest day', 'Recover and come back stronger', 'moon')}
       ${routines.map((r) => option(r.id, r.name, `${routineMuscles(r).join(' · ')} · ${plural(r.exercises.length, 'exercise')}`, 'gym')).join('')}</section>
     <button type="button" class="btn ghost press" style="margin-top:14px" data-action="routine-new" data-day="${i}">${icon('plus', 18, 2.4)}New routine for ${DAY_NAMES[i]}</button>
   `, (form, f) => {
     const next = [...days];
     next[i] = f.get('routine') || null;
-    write(store.saveSettings({ plan: { days: next } }), next[i] ? `${DAY_NAMES[i]}: ${routineById(next[i])?.name}` : `${DAY_NAMES[i]}: rest day`);
+    write(store.saveSettings({ plan: { days: next } }), next[i] === 'rest' ? `${DAY_NAMES[i]}: rest day` : next[i] ? `${DAY_NAMES[i]}: ${routineById(next[i])?.name}` : `${DAY_NAMES[i]}: not planned`);
   }, 'Save', 'var(--water)');
 }
 
@@ -2465,9 +2506,9 @@ function todayPlanLine(rec) {
     </div>`;
   }
   const tired = rec.worst && rec.worst[1] >= 30 ? `${regionById(rec.worst[0])?.name} recovering (${rec.worst[1]}%)` : 'everything fresh';
-  const hasPlan = sortedRoutines().length > 0;
+  const restToday = planDays()[dayIndex()] === 'rest';
   return `<div class="today-line">
-    <span><b>${hasPlan ? 'Rest day' : 'No plan today'}</b><small>${esc(tired)}</small></span>
+    <span><b>${restToday ? 'Rest day' : 'No plan today'}</b><small>${esc(tired)}</small></span>
     <button class="btn ghost press" data-action="start-session">${icon('gym', 16)}Train anyway</button>
   </div>`;
 }
@@ -2792,7 +2833,7 @@ function aiContext() {
 
   const days = planDays();
   if (days.some(Boolean)) {
-    L.push('', '## Weekly plan', DAY_NAMES.map((n, i) => `${n}: ${routineById(days[i])?.name ?? 'rest'}`).join(', '));
+    L.push('', '## Weekly plan', DAY_NAMES.map((n, i) => `${n}: ${days[i] === 'rest' ? 'rest' : routineById(days[i])?.name ?? 'not planned'}`).join(', '));
     for (const r of sortedRoutines()) L.push(`- ${r.name}: ${r.exercises.map((e) => `${e.name} ${e.sets}×${repsText(e)}`).join(', ')}`);
   } else L.push('', '## Weekly plan', 'No plan set up yet.');
 
@@ -4092,6 +4133,7 @@ const ACTIONS = {
   'member-view': (el) => viewMember(el.dataset.uid),
   'member-remove': (el) => removeMember(el.dataset.uid),
   'routine-share': (el) => openShareRoutine(el.dataset.id),
+  'plan-from-workout': (el) => planFromWorkout(Number(el.dataset.i), el.dataset.w),
   'share-send': (el) => sendShareRoutine(el),
   'share-all': () => document.querySelectorAll('#sheet-root input[name=to]').forEach((x) => { x.checked = true; }),
   'member-exit': () => exitMember(),
