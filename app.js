@@ -450,7 +450,7 @@ function todayView() {
     <div class="stack">
       ${live ? liveBanner(live) : ''}
       <section class="card hero recovery-card" style="--glow:color-mix(in srgb, ${rec.color} 35%, transparent)">
-        <div class="eyebrow">Recovery</div>
+        <div class="eyebrow">Recovery${rec.whoop ? ' · WHOOP' : ''}</div>
         <div class="dial-wrap">${dial(rec.score / 100, rec.color, { id: 'score' })}
           <div class="dial-center">
             <div class="hero-num" aria-label="Recovery ${rec.score} percent">${rec.score}<span class="hero-pct">%</span></div>
@@ -459,7 +459,7 @@ function todayView() {
         </div>
         <p class="hero-sub rec-why">${esc(rec.reason)}</p>
         <p class="rec-advice">${esc(rec.advice)}</p>
-        ${sleepControls(ci)}
+        ${rec.whoop ? whoopStrip(rec.whoop) : sleepControls(ci)}
         ${todayPlanLine(rec)}
       </section>
 
@@ -2224,6 +2224,9 @@ function recoveryStatus() {
   const good = ci && Number(ci.sleep) >= 7 ? `slept ${fmtSleep(ci.sleep)} · muscles fresh` : 'muscles fresh · normal training load';
   const reason = why.length ? why.slice(0, 2).map((w) => w[1]).join(' · ') : good;
 
+  // With WHOOP connected, its own recovery (from HRV, resting heart rate and sleep) replaces the estimate.
+  const wd = whoopToday();
+  if (wd) return { ...recoveryTier(wd.recovery, 67, 34, targets, worst, name), score: wd.recovery, reason: whoopReason(wd), whoop: wd, ci, ratio, run, worst, targets, planned, trainedToday };
   const tier = score >= 75 ? { label: 'Ready to push', color: 'var(--good)', icon: 'bolt', advice: 'Good day for heavy sets or a PR attempt.' }
     : score >= 50 ? { label: 'Train moderate', color: 'var(--warning)', icon: 'up', advice: 'Normal session; skip max attempts.' }
       : { label: 'Take it easy', color: 'var(--critical)', icon: 'moon', advice: 'Rest, or train light / a fresh muscle group.' };
@@ -3303,6 +3306,7 @@ function render() {
   const tab = inChat ? TABS[0] : inSession || inLibrary || inExplore ? TABS[1] : (TABS.find((t) => t.id === route) ?? TABS[0]);
   view.innerHTML = inSession ? sessionView() : inLibrary ? libraryView() : inExplore ? exploreView() : inChat ? chatView() : VIEWS[tab.id]();
   renderViewbar();
+  autoSyncWhoop();
   document.body.classList.toggle('in-session', inSession); document.body.classList.toggle('in-chat', inChat);
   if (inSession) lastActivity = Date.now();
   syncWakeLock(inSession && wantScreenOn()); // On / Auto / Off; always allowed to sleep while paused
@@ -3927,14 +3931,15 @@ function settingsSheet() {
       <div class="row-main"><div class="row-title">Assistant settings</div>
         <div class="row-sub">${aiSetup().key ? `${aiSetup().name} · answers inside the app` : `Free mode · opens ${aiSetup().name}`}</div></div>
       <span class="faint">${icon('right', 18)}</span></button>
-${isOwner ? `<span class="label">Members</span>
-<button type="button" class="row card press" data-action="members" style="padding:14px 16px">
-  <div class="tile-icon" style="--c:var(--train)">${icon('people', 19)}</div>
-  <div class="row-main"><div class="row-title">Members console</div>
-    <div class="row-sub">${memberList ? plural(memberList.length, 'member') : 'See everyone'} · read only · Money stays private</div></div>
-  <span class="faint">${icon('right', 18)}</span></button>` : store.mode === 'cloud' ? `<span class="label">Privacy</span>
-<section class="card small muted privacy-note">${icon('lock', 16)}<p>The app owner can see your workouts, sleep, weight, goals and plans to help you train. Your <b>Money</b> section stays private.</p></section>` : ''}
-<span class="label">Body diagrams</span>
+    ${isOwner ? `<span class="label">Members</span>
+    <button type="button" class="row card press" data-action="members" style="padding:14px 16px">
+      <div class="tile-icon" style="--c:var(--train)">${icon('people', 19)}</div>
+      <div class="row-main"><div class="row-title">Members console</div>
+        <div class="row-sub">${memberList ? plural(memberList.length, 'member') : 'See everyone'} · read only · Money stays private</div></div>
+      <span class="faint">${icon('right', 18)}</span></button>` : store.mode === 'cloud' ? `<span class="label">Privacy</span>
+    <section class="card small muted privacy-note">${icon('lock', 16)}<p>The app owner can see your workouts, sleep, weight, goals and plans to help you train. Your <b>Money</b> section stays private.</p></section>` : ''}
+    ${whoopSettings()}
+    <span class="label">Body diagrams</span>
     <div class="seg-tabs" role="tablist">${[['male', 'Male'], ['female', 'Female']].map(([v, l]) => `
       <button type="button" class="press" role="tab" data-action="body-sex" data-v="${v}" aria-selected="${bodySex() === v}">${l}</button>`).join('')}</div>
     <span class="label">Credits</span>
@@ -3976,11 +3981,14 @@ function exportBackup() {
 /* ================= Events ================= */
 
 const ACTIONS = {
-'settings': () => settingsSheet(),
-'members': () => membersConsole(),
-'member-view': (el) => viewMember(el.dataset.uid),
-'member-exit': () => exitMember(),
-'member-refresh': () => membersConsole(true),
+  'settings': () => settingsSheet(),
+  'members': () => membersConsole(),
+  'whoop-connect': () => connectWhoop(),
+  'whoop-sync': () => syncWhoop(false),
+  'whoop-disconnect': () => disconnectWhoop(),
+  'member-view': (el) => viewMember(el.dataset.uid),
+  'member-exit': () => exitMember(),
+  'member-refresh': () => membersConsole(true),
   'sheet-close': () => closeSheet(),
   'add-workout': () => (activeSession() ? go('session') : startSessionSheet()),
   'quick-log': () => quickLogForm(),
@@ -4363,6 +4371,18 @@ function renderLogin(message = '') {
 
 function handleLinkActions() {
   const params = new URLSearchParams(location.search);
+  if (params.has('whoop')) {
+    const result = params.get('whoop');
+    history.replaceState(null, '', `${location.pathname}#today`);
+    route = 'today';
+    if (result === 'connected') {
+      write(store.saveSettings({ whoop: { connected: true, lastSync: 0 } }));
+      toast('WHOOP connected. Getting your data…');
+      syncWhoop(true);
+    } else toast(result === 'cancelled' ? 'WHOOP connection cancelled' : 'WHOOP connection failed. Try again.', result !== 'cancelled');
+    render();
+    return;
+  }
   if (!params.has('water')) return;
   const ml = Math.round(num(params.get('water')));
   history.replaceState(null, '', `${location.pathname}#today`);
@@ -4371,6 +4391,118 @@ function handleLinkActions() {
   if (ml > 0 && ml <= 3000) write(store.add('water', { at: Date.now(), ml }), `Logged ${ml} ml`);
   render();
   openWaterOnStart = true;
+}
+
+/* ================= WHOOP (through the free Life Tracker helper) ================= */
+
+// The helper's web address (Cloudflare Worker). Empty = WHOOP not set up yet.
+const WHOOP_URL = 'https://life-tracker-whoop.akashlatha13-10-2003.workers.dev';
+const whoopBase = () => {
+  // The preview on this computer can point at a test helper.
+  if (location.hostname === 'localhost') { try { const u = localStorage.getItem('lt-whoop-url'); if (u) return u; } catch { /* blocked */ } }
+  return WHOOP_URL;
+};
+const whoopOn = () => Boolean(settings().whoop?.connected);
+const sortedWhoop = () => [...(data().whoop ?? [])].sort((a, b) => (a.day < b.day ? -1 : 1));
+const latestWhoop = () => sortedWhoop().at(-1) ?? null;
+/** Today's WHOOP day, only once WHOOP has scored today's recovery. */
+const whoopToday = () => { const w = (data().whoop ?? []).find((x) => x.day === dayKey()); return w && Number.isFinite(w.recovery) ? w : null; };
+
+function whoopReason(w) {
+  const bits = [];
+  if (w.hrv) bits.push(`HRV ${w.hrv} ms`);
+  if (w.rhr) bits.push(`resting HR ${w.rhr}`);
+  if (w.calibrating) bits.push('WHOOP still calibrating');
+  return bits.join(' · ') || 'From your WHOOP';
+}
+
+function recoveryTier(score, hi, mid, targets, worst, name) {
+  const tier = score >= hi ? { label: 'Ready to push', color: 'var(--good)', icon: 'bolt', advice: 'Good day for heavy sets or a PR attempt.' }
+    : score >= mid ? { label: 'Train moderate', color: 'var(--warning)', icon: 'up', advice: 'Normal session; skip max attempts.' }
+      : { label: 'Take it easy', color: 'var(--critical)', icon: 'moon', advice: 'Rest, or train light / a fresh muscle group.' };
+  if (targets.length && worst && worst[1] >= 60) {
+    tier.advice = `Your plan works ${name(worst[0]).toLowerCase()}, still ${worst[1]}% fatigued. Go lighter, or swap with another day's routine.`;
+  }
+  return tier;
+}
+
+function whoopStrip(w) {
+  const chip = (ic, text) => `<span class="w-chip">${icon(ic, 14, 2)}${text}</span>`;
+  return `<div class="whoop-strip">
+    ${w.sleepH != null ? chip('moon', `<b class="num">${fmtSleep(w.sleepH)}</b>${w.sleepPerf != null ? ` · ${Math.round(w.sleepPerf)}%` : ''}`) : ''}
+    ${w.strain != null ? chip('flame', `Strain <b class="num">${w.strain}</b>`) : ''}
+    ${w.rhr ? chip('health', `<b class="num">${w.rhr}</b> bpm`) : ''}
+  </div>`;
+}
+
+function whoopSettings() {
+  if (!whoopBase() || viewing) return '';
+  const w = settings().whoop ?? {};
+  const last = latestWhoop();
+  return `<span class="label">WHOOP</span>
+    <section class="card whoop-card">
+      <div class="row-main"><div class="row-title">${w.connected ? 'Connected' : 'Connect your WHOOP'}</div>
+        <div class="row-sub">${w.connected ? `Last synced ${esc(fmtAgo(w.lastSync))}${last ? ` · latest day ${esc(fmtDate(new Date(last.day)))}` : ''}` : 'Recovery, sleep and strain fill in by themselves'}</div></div>
+      <div class="whoop-actions">${w.connected
+    ? `<button type="button" class="btn ghost press" data-action="whoop-sync">${icon('down', 16)}Sync now</button>
+         <button type="button" class="text-btn danger" data-action="whoop-disconnect">Disconnect</button>`
+    : `<button type="button" class="btn tint press" style="--c:var(--good)" data-action="whoop-connect">${icon('bolt', 16, 2.2)}Connect WHOOP</button>`}</div>
+    </section>`;
+}
+
+async function whoopCall(path) {
+  const res = await fetch(`${whoopBase()}${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${await store.idToken()}`, 'Content-Type': 'application/json' },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `WHOOP helper error ${res.status}`);
+  return body;
+}
+
+async function connectWhoop() {
+  try {
+    const { url } = await whoopCall('/start');
+    location.href = url; // WHOOP's own sign-in page; it sends you back here when done
+  } catch (err) { toast(`Couldn’t start WHOOP: ${err.message}`, true); }
+}
+
+let whoopSyncing = false;
+async function syncWhoop(quiet = true) {
+  if (!whoopBase() || viewing || whoopSyncing) return;
+  whoopSyncing = true;
+  try {
+    const res = await whoopCall('/sync');
+    if (!res.connected) {
+      await store.saveSettings({ whoop: { connected: false } });
+      if (!quiet) toast('WHOOP isn’t connected any more. Connect it again.', true);
+      return;
+    }
+    const have = new Map((data().whoop ?? []).map((x) => [x.id, x]));
+    const strip = ({ id, ...rest }) => JSON.stringify(rest);
+    for (const day of res.days ?? []) {
+      const old = have.get(day.day);
+      if (!old || strip(old) !== JSON.stringify(day)) await store.set('whoop', day.day, day);
+    }
+    await store.saveSettings({ whoop: { connected: true, lastSync: Date.now() } });
+    if (!quiet) toast('WHOOP synced');
+  } catch (err) {
+    if (!quiet) toast(`WHOOP sync failed: ${err.message}`, true);
+  } finally { whoopSyncing = false; }
+}
+
+// Syncs by itself when the app opens, at most every 30 minutes.
+function autoSyncWhoop() {
+  if (!whoopOn() || viewing || whoopSyncing) return;
+  if (Date.now() - (settings().whoop?.lastSync || 0) < 30 * 60000) return;
+  setTimeout(() => syncWhoop(true), 0);
+}
+
+async function disconnectWhoop() {
+  if (!(await askConfirm({ title: 'Disconnect WHOOP?', message: 'New WHOOP data stops coming in. What’s already saved stays.', yes: 'Disconnect' }))) return;
+  try { await whoopCall('/disconnect'); } catch { /* still turn it off here */ }
+  write(store.saveSettings({ whoop: { connected: false } }), 'WHOOP disconnected');
+  closeSheet();
 }
 
 /* ================= Members console (owner only) ================= */
@@ -4412,9 +4544,11 @@ function memberSummary(d) {
   return withData(d, () => {
     const done = doneWorkouts().sort((a, b) => b.at - a.at);
     const last = done[0] ?? null;
-    const sleep = [...(d.checkins ?? [])].sort((a, b) => (a.day < b.day ? 1 : -1))[0] ?? null;
+    const w = latestWhoop();
+    const logged = [...(d.checkins ?? [])].sort((a, b) => (a.day < b.day ? 1 : -1))[0] ?? null;
+    const sleep = w?.sleepH != null && (!logged || w.day >= logged.day) ? { day: w.day, at: w.start, sleep: w.sleepH } : logged;
     const wt = latestWeight();
-    const hasData = done.length || (d.checkins ?? []).length;
+    const hasData = done.length || (d.checkins ?? []).length || (d.whoop ?? []).length;
     return {
       live: activeSession(),
       last,
@@ -4436,6 +4570,7 @@ function memberCard(m, d) {
     x.last ? `<span class="m-chip">${icon(typeIcon(x.last.type), 13, 2)}${esc(x.last.title || x.last.type || 'Workout')} · ${esc(fmtAgo(x.last.at))}</span>` : '<span class="m-chip faint">No workouts yet</span>',
     x.sleep ? `<span class="m-chip">${icon('moon', 13, 2)}${fmtSleep(x.sleep.sleep)}</span>` : '',
     x.weight ? `<span class="m-chip">${icon('scale', 13, 2)}${fmtKg(x.weight)} kg</span>` : '',
+    x.rec?.whoop?.strain != null ? `<span class="m-chip whoop">${icon('flame', 13, 2)}Strain ${x.rec.whoop.strain}</span>` : '',
   ].join('');
   return `<button type="button" class="member-card card press" data-action="member-view" data-uid="${esc(m.uid)}">
     <div class="member-top">

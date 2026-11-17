@@ -2,14 +2,14 @@
 // otherwise a local "test mode" that saves in this browser only.
 import { firebaseConfig } from './firebase-config.js';
 
-const COLLECTIONS = ['workouts', 'expenses', 'water', 'goals', 'weights', 'routines', 'exercises', 'checkins'];
+const COLLECTIONS = ['workouts', 'expenses', 'water', 'goals', 'weights', 'routines', 'exercises', 'checkins', 'whoop'];
 // What the owner can see of a member (Money stays private; the database rules enforce this too).
 const MEMBER_COLLECTIONS = COLLECTIONS.filter((c) => c !== 'expenses');
 const DEFAULT_SETTINGS = { budget: 20000, waterGoal: 3000, trainGoal: 45 };
 const FIREBASE_VERSION = '10.12.2';
 
 const emptyData = () => ({
-  workouts: [], expenses: [], water: [], goals: [], weights: [], routines: [], exercises: [], checkins: [], settings: { ...DEFAULT_SETTINGS },
+  workouts: [], expenses: [], water: [], goals: [], weights: [], routines: [], exercises: [], checkins: [], whoop: [], settings: { ...DEFAULT_SETTINGS },
 });
 
 // A preview running on this computer (localhost) always uses test mode,
@@ -42,6 +42,7 @@ function localStore(onChange) {
     user: { uid: 'local', email: 'Test mode (this browser)' },
     watchUser(cb) { cb(this.user); },
     async signIn() {}, async signUp() {}, async resetPassword() {}, async signOut() {},
+    async idToken() { return 'preview-token'; },
     async add(col, obj) { data[col].push({ id: newId(), ...obj }); persist(); },
     async set(col, id, obj) { data[col] = data[col].filter((x) => x.id !== id); data[col].push({ id, ...obj }); persist(); },
     async update(col, id, patch) { const it = data[col].find((x) => x.id === id); if (it) Object.assign(it, patch); persist(); },
@@ -110,10 +111,10 @@ async function cloudStore(onChange) {
         store.user = user;
         uid = user?.uid ?? null;
 
-if (user) {
-  // Lets the owner's Members console list this account and show when it was last used.
-  F.setDoc(userDoc(), { profile: { email: user.email ?? '', lastSeen: Date.now() } }, { merge: true }).catch(() => {});
-  for (const name of COLLECTIONS) {
+        if (user) {
+          // Lets the owner's Members console list this account and show when it was last used.
+          F.setDoc(userDoc(), { profile: { email: user.email ?? '', lastSeen: Date.now() } }, { merge: true }).catch(() => {});
+          for (const name of COLLECTIONS) {
             unsubscribers.push(F.onSnapshot(col(name), (snap) => {
               data[name] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
               onChange();
@@ -132,31 +133,33 @@ if (user) {
     signUp: (email, password) => A.createUserWithEmailAndPassword(auth, email, password),
     resetPassword: (email) => A.sendPasswordResetEmail(auth, email),
     signOut: () => A.signOut(auth),
+    // Proves to the WHOOP helper which member is asking.
+    idToken: () => auth.currentUser?.getIdToken() ?? Promise.reject(new Error('Not signed in')),
 
     add: (name, obj) => F.addDoc(col(name), obj),
     // Save under an id chosen by the app (works offline, so the id is known straight away).
     set: (name, id, obj) => F.setDoc(F.doc(db, 'users', uid, name, id), obj),
     update: (name, id, patch) => F.updateDoc(F.doc(db, 'users', uid, name, id), patch),
     remove: (name, id) => F.deleteDoc(F.doc(db, 'users', uid, name, id)),
-saveSettings: (patch) => F.setDoc(userDoc(), { settings: patch }, { merge: true }),
+    saveSettings: (patch) => F.setDoc(userDoc(), { settings: patch }, { merge: true }),
 
-// Members console (owner only). The database rules refuse these for everyone else.
-async listMembers() {
-  const snap = await F.getDocs(F.collection(db, 'users'));
-  return snap.docs.filter((d) => d.id !== uid).map((d) => ({
-    uid: d.id, email: d.data().profile?.email ?? '', lastSeen: d.data().profile?.lastSeen ?? 0,
-  }));
-},
-async loadMember(id) {
-  const out = emptyData();
-  await Promise.all(MEMBER_COLLECTIONS.map(async (c) => {
-    const snap = await F.getDocs(F.collection(db, 'users', id, c));
-    out[c] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  }));
-  const u = await F.getDoc(F.doc(db, 'users', id));
-  out.settings = { ...DEFAULT_SETTINGS, ...(u.data()?.settings ?? {}) };
-  return out;
-},
+    // Members console (owner only). The database rules refuse these for everyone else.
+    async listMembers() {
+      const snap = await F.getDocs(F.collection(db, 'users'));
+      return snap.docs.filter((d) => d.id !== uid).map((d) => ({
+        uid: d.id, email: d.data().profile?.email ?? '', lastSeen: d.data().profile?.lastSeen ?? 0,
+      }));
+    },
+    async loadMember(id) {
+      const out = emptyData();
+      await Promise.all(MEMBER_COLLECTIONS.map(async (c) => {
+        const snap = await F.getDocs(F.collection(db, 'users', id, c));
+        out[c] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      }));
+      const u = await F.getDoc(F.doc(db, 'users', id));
+      out.settings = { ...DEFAULT_SETTINGS, ...(u.data()?.settings ?? {}) };
+      return out;
+    },
   };
   return store;
 }

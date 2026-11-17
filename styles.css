@@ -1572,3 +1572,14 @@ body.viewing .tabbar [data-tab="money"] { display: none; }
 .privacy-note { display: flex; gap: 10px; align-items: flex-start; }
 .privacy-note svg { flex: none; margin-top: 2px; }
 .privacy-note p { margin: 0; }
+
+/* ---------- WHOOP ---------- */
+.whoop-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
+.w-chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; font-size: 13px; color: var(--text-2);
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.06); }
+.w-chip b { color: var(--text); font-weight: 700; }
+.whoop-card { display: flex; flex-direction: column; gap: 12px; }
+.whoop-actions { display: flex; align-items: center; gap: 14px; }
+.whoop-actions .btn { width: auto; flex: 1; }
+.text-btn.danger { color: var(--critical); }
+.m-chip.whoop { color: var(--warning); }
