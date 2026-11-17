@@ -1736,10 +1736,29 @@ function planView() {
     <div class="stack">${tabs}${body}</div>`;
 }
 
+const exNames = (list) => [...new Set((list ?? []).map((e) => normName(e.name)))].sort().join('|');
+function routineForWorkout(w) {
+  const all = sortedRoutines();
+  const done = (w.exercises ?? []).filter((e) => exSets(e).some((x) => x.reps > 0));
+  return routineById(w.routineId)
+    ?? all.find((r) => r.fromWorkout === w.id)
+    ?? (done.length ? all.find((r) => exNames(r.exercises) === exNames(done)) : null)
+    ?? null;
+}
+
 /** Turns a finished workout into a routine (same exercises, sets and reps per set) and puts it on weekday i. */
-function planFromWorkout(i, wid) {
+function planFromWorkout(i, wid, btn) {
   const w = data().workouts.find((x) => x.id === wid);
   if (!w) return;
+  if (btn) btn.disabled = true;
+  // Already have a routine for this workout: just put it on the day, never make a copy.
+  const existing = routineForWorkout(w);
+  if (existing) {
+    const days = planDays(); days[i] = existing.id;
+    write(store.saveSettings({ plan: { days } }), `${existing.name} is now your ${DAY_NAMES[i]} routine`);
+    closeSheet();
+    return;
+  }
   const exercises = (w.exercises ?? []).map((e) => {
     const reps = exSets(e).filter((x) => x.reps > 0).map((x) => Math.min(100, Math.max(1, Math.round(x.reps))));
     if (!reps.length) return null;
@@ -1751,7 +1770,7 @@ function planFromWorkout(i, wid) {
   if (sortedRoutines().some((r) => r.name === name)) name = `${name} (${DAY_NAMES[i].slice(0, 3)})`;
   const id = makeId();
   const days = planDays(); days[i] = id;
-  write(store.set('routines', id, { name, exercises, createdAt: Date.now() }));
+  write(store.set('routines', id, { name, exercises, createdAt: Date.now(), fromWorkout: w.id }));
   write(store.saveSettings({ plan: { days } }), `Saved as your ${DAY_NAMES[i]} routine`);
   closeSheet();
 }
@@ -1767,12 +1786,17 @@ function planDaySheet(i) {
   const date = startOfWeek(); date.setDate(date.getDate() + i);
   const w = gymWorkoutOn(date);
   const wExs = (w?.exercises ?? []).filter((e) => exSets(e).some((x) => x.reps > 0));
+  const linked = w ? routineForWorkout(w) : null;
+  const onDay = linked && days[i] === linked.id;
+  const syncBtn = !w || onDay ? ''
+    : linked ? `<button type="button" class="btn tint press" style="--c:var(--water);margin-top:12px" data-action="plan-from-workout" data-i="${i}" data-w="${esc(w.id)}">${icon('calendar', 18, 2.2)}Put ${esc(linked.name)} on ${esc(DAY_NAMES[i])}</button>`
+      : `<button type="button" class="btn tint press" style="--c:var(--good);margin-top:12px" data-action="plan-from-workout" data-i="${i}" data-w="${esc(w.id)}">${icon('down', 18, 2.2)}Save this workout as my ${esc(DAY_NAMES[i])} routine</button>`;
   openSheet(DAY_NAMES[i], `
     ${w ? `<section class="card plan-sync">
       <div class="eyebrow" style="color:var(--good)">${icon('check', 13, 2.6)} You trained ${isToday(date) ? 'today' : `on ${esc(DAY_NAMES[i])}`}</div>
       <div class="row-title">${esc(workoutLabel(w))}</div>
       <div class="row-sub">${esc(wExs.map((e) => e.name).slice(0, 4).join(' · '))}${wExs.length > 4 ? ` +${wExs.length - 4} more` : ''}</div>
-      <button type="button" class="btn tint press" style="--c:var(--good);margin-top:12px" data-action="plan-from-workout" data-i="${i}" data-w="${esc(w.id)}">${icon('down', 18, 2.2)}Save this workout as my ${esc(DAY_NAMES[i])} routine</button>
+      ${onDay ? `<div class="plan-synced">${icon('check', 15, 2.6)}${esc(linked.name)} is your ${esc(DAY_NAMES[i])} routine</div>` : syncBtn}
     </section>` : ''}
     <p class="muted small" style="margin:${w ? '16px' : '0'} 0 12px">${w ? 'Or pick' : 'Pick'} what you train every ${DAY_NAMES[i]}.</p>
     <section class="card">${option('', 'Not planned', 'Decide on the day', 'plus')}
@@ -4133,7 +4157,7 @@ const ACTIONS = {
   'member-view': (el) => viewMember(el.dataset.uid),
   'member-remove': (el) => removeMember(el.dataset.uid),
   'routine-share': (el) => openShareRoutine(el.dataset.id),
-  'plan-from-workout': (el) => planFromWorkout(Number(el.dataset.i), el.dataset.w),
+  'plan-from-workout': (el) => planFromWorkout(Number(el.dataset.i), el.dataset.w, el),
   'share-send': (el) => sendShareRoutine(el),
   'share-all': () => document.querySelectorAll('#sheet-root input[name=to]').forEach((x) => { x.checked = true; }),
   'member-exit': () => exitMember(),
