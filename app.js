@@ -57,6 +57,7 @@ const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)')
 /* ================= Icons (simple line set) ================= */
 
 const ICONS = {
+  share: '<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"/><path d="M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>',
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   eyeOff: '<path d="M3 3l18 18M10.6 6.1A9.6 9.6 0 0 1 12 6c6 0 9.5 6 9.5 6a17 17 0 0 1-3 3.7M6.5 7.6A16.5 16.5 0 0 0 2.5 12s3.5 6 9.5 6a9 9 0 0 0 4.3-1.1M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
   today: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
@@ -1672,24 +1673,6 @@ const routineMuscles = (r) => [...new Set((r?.exercises ?? []).map((e) => e.musc
 const routineSets = (r) => sum(r?.exercises ?? [], (e) => e.sets);
 let planTab = 'schedule';
 
-const STARTER_PLAN = [
-  { day: 0, name: 'Chest & Triceps', ex: [['Bench press', 'Chest', 4, 8], ['Incline dumbbell press', 'Chest', 3, 10], ['Cable fly', 'Chest', 3, 12], ['Tricep pushdown', 'Triceps', 3, 12], ['Overhead extension', 'Triceps', 3, 10]] },
-  { day: 1, name: 'Back & Biceps', ex: [['Lat pulldown', 'Back', 4, 10], ['Barbell row', 'Back', 3, 8], ['Seated cable row', 'Back', 3, 12], ['Barbell curl', 'Biceps', 3, 10], ['Hammer curl', 'Biceps', 3, 12]] },
-  { day: 3, name: 'Legs & Abs', ex: [['Squat', 'Legs', 4, 8], ['Leg press', 'Legs', 3, 12], ['Romanian deadlift', 'Legs', 3, 10], ['Leg curl', 'Legs', 3, 12], ['Calf raise', 'Legs', 3, 15], ['Hanging leg raise', 'Abs', 3, 12]] },
-  { day: 4, name: 'Shoulders & Forearms', ex: [['Overhead press', 'Shoulders', 4, 8], ['Lateral raise', 'Shoulders', 4, 15], ['Rear delt fly', 'Shoulders', 3, 15], ['Shrugs', 'Shoulders', 3, 12], ['Wrist curl', 'Forearms', 3, 15]] },
-];
-
-function loadStarterPlan() {
-  const days = planDays();
-  const now = Date.now();
-  STARTER_PLAN.forEach((p, k) => {
-    const id = makeId();
-    write(store.set('routines', id, { name: p.name, createdAt: now + k, exercises: p.ex.map(([name, muscle, sets, reps]) => ({ name, muscle, sets, reps })) }));
-    if (!days[p.day]) days[p.day] = id;
-  });
-  write(store.saveSettings({ plan: { days } }), 'Starter plan loaded');
-}
-
 function planView() {
   const routines = sortedRoutines();
   const days = planDays();
@@ -1700,9 +1683,8 @@ function planView() {
   const starter = `<section class="card plan-empty">
       <div class="tile-icon" style="--c:var(--water);width:52px;height:52px;border-radius:16px;margin:0 auto">${icon('calendar', 26)}</div>
       <h3>No routines yet</h3>
-      <p class="muted small">Make one, or load a 4-day starter split (chest, back, legs, shoulders) and change it to suit you.</p>
-      <button class="btn tint press" style="--c:var(--water)" data-action="plan-starter">${icon('bolt', 18, 2.2)}Load starter plan</button>
-      <button class="btn ghost press" style="margin-top:10px" data-action="routine-new">${icon('plus', 18, 2.4)}Create a routine</button>
+      <p class="muted small">Make a routine with the exercises, sets and reps you want, then put it on your weekly schedule.</p>
+      <button class="btn tint press" style="--c:var(--water)" data-action="routine-new">${icon('plus', 18, 2.4)}Create a routine</button>
     </section>`;
 
   let body;
@@ -1729,13 +1711,13 @@ function planView() {
   } else {
     body = routines.length ? `${routines.map((r) => {
       const onDays = days.map((id, i) => (id === r.id ? DAY_NAMES[i].slice(0, 3) : null)).filter(Boolean);
-      return `<button class="card routine-card press" data-action="routine-open" data-id="${esc(r.id)}">
+      return `<div class="routine-wrap"><button class="card routine-card press" data-action="routine-open" data-id="${esc(r.id)}">
         <div class="goal-top"><div class="row-main"><div class="row-title">${esc(r.name)}</div>
           <div class="row-sub">${esc(routineMuscles(r).join(' · '))}</div></div>
           <span class="faint">${icon('right', 18)}</span></div>
         <div class="routine-ex">${r.exercises.slice(0, 4).map((e) => `<span>${esc(e.name)} <b class="num">${e.sets} × ${repsText(e)}</b></span>`).join('')}${r.exercises.length > 4 ? `<span class="faint">+${r.exercises.length - 4} more</span>` : ''}</div>
         <div class="goal-meta"><span class="num">${plural(r.exercises.length, 'exercise')} · ${plural(routineSets(r), 'set')}</span><span>${onDays.length ? esc(onDays.join(', ')) : 'Not scheduled'}</span></div>
-      </button>`;
+      </button>${isOwner ? `<button type="button" class="routine-share press" data-action="routine-share" data-id="${esc(r.id)}">${icon('share', 15, 2)}Share</button>` : ''}</div>`;
     }).join('')}
       <button class="btn ghost press" data-action="routine-new">${icon('plus', 18, 2.4)}New routine</button>` : starter;
   }
@@ -1840,6 +1822,91 @@ document.addEventListener('input', (e) => {
   if (list) list.innerHTML = pickerList(m[1]);
   document.querySelectorAll(`[data-action=pick-muscle][data-p="${m[1]}"]`).forEach((b) => b.setAttribute('aria-pressed', String(!e.target.value && b.dataset.m === pickerState[m[1]].muscle)));
 });
+
+/* ---------- Share a routine with members (admins) ---------- */
+
+let shareRoutine = null; // { routine, days } being shared
+
+async function openShareRoutine(id) {
+  const r = routineById(id);
+  if (!r) return;
+  const days = planDays().map((x, i) => (x === r.id ? i : null)).filter((i) => i !== null);
+  shareRoutine = { routine: { id: r.id, name: r.name, exercises: r.exercises }, days };
+  openSheet('Share routine', `<div class="empty">Loading members…</div>`, null, '', 'var(--water)');
+  let list;
+  try {
+    list = visibleMembers(await store.listMembers()).sort((a, b) => memberName(a.email).localeCompare(memberName(b.email)));
+  } catch (err) {
+    setShareBody(`<div class="empty">${icon('alert', 24)}Couldn’t load members: ${esc(err?.message ?? err)}</div>`);
+    return;
+  }
+  // While looking at a member, you can also copy their routine to yourself.
+  const people = [
+    ...(viewing ? [{ uid: '__me', email: store.user?.email ?? 'You', me: true }] : []),
+    ...list.filter((m) => m.uid !== viewing?.uid),
+  ];
+  const dayNames = days.map((i) => DAY_NAMES[i].slice(0, 3)).join(', ');
+  setShareBody(`
+    <p class="muted small" style="margin:0 0 12px"><b>${esc(r.name)}</b> · ${plural(r.exercises.length, 'exercise')}. Sharing again later updates their copy.</p>
+    ${people.length ? `<button type="button" class="text-btn" data-action="share-all" style="margin:0 0 8px">Select everyone</button>
+    <section class="card share-list">${people.map((m) => `<label class="row pick-row">
+        <input type="checkbox" name="to" value="${esc(m.uid)}">
+        <div class="avatar sm">${esc((m.me ? 'You' : memberName(m.email))[0])}</div>
+        <div class="row-main"><div class="row-title">${esc(m.me ? 'You' : memberName(m.email))}</div><div class="row-sub">${esc(m.email)}</div></div>
+        <span class="pick-check">${icon('check', 18, 2.6)}</span></label>`).join('')}</section>
+    ${days.length ? `<label class="row share-days"><input type="checkbox" name="days" checked>
+        <div class="row-main"><div class="row-title">Also put it on ${esc(dayNames)}</div><div class="row-sub">Replaces whatever they had planned on ${days.length > 1 ? 'those days' : 'that day'}</div></div></label>` : ''}
+    <button type="button" class="btn tint press" style="--c:var(--water);margin-top:14px" data-action="share-send">${icon('share', 18, 2.2)}Share</button>`
+    : emptyState('people', 'No members to share with yet.')}`);
+}
+
+function setShareBody(html) {
+  const body = document.querySelector('#sheet-root .sheet[aria-label="Share routine"] .sheet-body');
+  if (body) body.innerHTML = html;
+}
+
+async function sendShareRoutine(btn) {
+  const sheet = document.querySelector('#sheet-root .sheet[aria-label="Share routine"]');
+  if (!sheet || !shareRoutine) return;
+  const to = [...sheet.querySelectorAll('input[name=to]:checked')].map((x) => x.value);
+  if (!to.length) { toast('Pick at least one person', true); return; }
+  const withDays = Boolean(sheet.querySelector('input[name=days]')?.checked) && shareRoutine.days.length;
+  const { routine, days } = shareRoutine;
+  const copy = { name: routine.name, exercises: routine.exercises, createdAt: Date.now(), sharedAt: Date.now() };
+  btn.disabled = true;
+  btn.textContent = 'Sharing…';
+  let ok = 0;
+  const failed = [];
+  for (const uid of to) {
+    try {
+      if (uid === '__me') {
+        // Your own data, even while looking at someone else.
+        await (store._set ?? store.set)('routines', routine.id, copy);
+        if (withDays) {
+          const mine = store.data.settings.plan?.days;
+          const next = Array.from({ length: 7 }, (_, i) => (days.includes(i) ? routine.id : (Array.isArray(mine) ? mine[i] ?? null : null)));
+          await (store._saveSettings ?? store.saveSettings)({ plan: { days: next } });
+        }
+      } else {
+        await store.memberWrite(uid, 'set', 'routines', routine.id, copy);
+        if (withDays) {
+          const theirs = (await memberData(uid, true)).settings.plan?.days;
+          const next = Array.from({ length: 7 }, (_, i) => (days.includes(i) ? routine.id : (Array.isArray(theirs) ? theirs[i] ?? null : null)));
+          await store.memberSettings(uid, { plan: { days: next } });
+        }
+        memberCache.delete(uid);
+      }
+      ok += 1;
+    } catch (err) {
+      failed.push(err?.message ?? String(err));
+    }
+  }
+  if (viewing && to.includes(viewing.uid)) viewing.data = await memberData(viewing.uid, true);
+  closeSheet();
+  shareRoutine = null;
+  if (failed.length) toast(`Shared with ${ok} of ${to.length}. Couldn’t share: ${failed[0]}`, true);
+  else toast(`${routine.name} shared with ${ok} ${ok === 1 ? 'person' : 'people'}`);
+}
 
 /* ---------- Routine editor ---------- */
 
@@ -4024,6 +4091,9 @@ const ACTIONS = {
   'whoop-disconnect': () => disconnectWhoop(),
   'member-view': (el) => viewMember(el.dataset.uid),
   'member-remove': (el) => removeMember(el.dataset.uid),
+  'routine-share': (el) => openShareRoutine(el.dataset.id),
+  'share-send': (el) => sendShareRoutine(el),
+  'share-all': () => document.querySelectorAll('#sheet-root input[name=to]').forEach((x) => { x.checked = true; }),
   'member-exit': () => exitMember(),
   'member-refresh': () => membersConsole(true),
   'sheet-close': () => closeSheet(),
@@ -4186,7 +4256,6 @@ const ACTIONS = {
   // Plan
   'plan-tab': (el) => { planTab = el.dataset.t; render(); },
   'plan-day': (el) => planDaySheet(Number(el.dataset.i)),
-  'plan-starter': () => loadStarterPlan(),
   'routine-new': (el) => routineEditor(null, el.dataset.day !== undefined ? Number(el.dataset.day) : null),
   'routine-open': (el) => routineEditor(el.dataset.id),
   'routine-del': async (el) => {
