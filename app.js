@@ -4320,20 +4320,27 @@ const AUTH_ERRORS = {
 };
 const authMessage = (err) => AUTH_ERRORS[err?.code] ?? err?.message ?? 'Something went wrong.';
 
-function renderLogin(message = '') {
+// Sign in, or (mode 'signup') create an account. Creating needs the email typed twice,
+// so a typo like "beatzlife" for "bratzlife" can't quietly make a second account.
+function renderLogin(message = '', mode = 'signin', keep = {}) {
   signedIn = false;
+  const signup = mode === 'signup';
   app.innerHTML = `
     <div class="login view-enter">
       <img class="brand-mark" src="icons/icon.svg" alt="" width="64" height="64">
-      <h1>Train. Spend.<br>Stay on target.</h1>
-      <p class="lead">One daily score for your workouts, money and body weight.</p>
+      <h1>${signup ? 'Create your<br>account' : 'Train. Spend.<br>Stay on target.'}</h1>
+      <p class="lead">${signup ? 'Use the email you check every day. You’ll sign in with it from now on.' : 'One daily score for your workouts, money and body weight.'}</p>
       <form id="login-form" novalidate>
-        <label class="field"><span>Email</span><input name="email" type="email" autocomplete="username" inputmode="email" required></label>
-        <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
+        <label class="field"><span>Email</span><input name="email" type="email" autocomplete="${signup ? 'email' : 'username'}" inputmode="email" autocapitalize="off" spellcheck="false" value="${esc(keep.email ?? '')}" required></label>
+        ${signup ? `<label class="field"><span>Type your email again</span><input name="email2" type="email" autocomplete="off" inputmode="email" autocapitalize="off" spellcheck="false" required></label>` : ''}
+        <label class="field"><span>Password</span><input name="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" required></label>
         <p class="error" id="login-error">${esc(message)}</p>
-        <button class="btn press" type="submit">Sign in</button>
-        <button class="btn ghost press" type="button" id="signup-btn">Create my account</button>
-        <button class="text-btn" type="button" id="reset-btn" style="margin-top:12px">Forgot password?</button>
+        ${signup
+          ? `<button class="btn press" type="submit">Create account</button>
+             <button class="btn ghost press" type="button" id="mode-btn">I already have an account</button>`
+          : `<button class="btn press" type="submit">Sign in</button>
+             <button class="btn ghost press" type="button" id="mode-btn">New here? Create an account</button>
+             <button class="text-btn" type="button" id="reset-btn" style="margin-top:12px">Forgot password?</button>`}
       </form>
       <div class="login-foot">${icon('lock', 14)}Your data is private to your account.</div>
     </div>
@@ -4344,23 +4351,28 @@ function renderLogin(message = '') {
   const values = () => ({ email: clean(form.email.value, 120), password: form.password.value });
   const busy = (on) => form.querySelectorAll('button').forEach((b) => { b.disabled = on; });
 
+  document.getElementById('mode-btn').addEventListener('click', () => {
+    renderLogin('', signup ? 'signin' : 'signup', { email: values().email });
+  });
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const { email, password } = values();
-    if (!email || !password) { errorEl.textContent = 'Enter your email and password.'; return; }
-    busy(true);
-    try { await store.signIn(email, password); } catch (err) { errorEl.textContent = authMessage(err); busy(false); }
-  });
-
-  document.getElementById('signup-btn').addEventListener('click', async () => {
-    const { email, password } = values();
-    if (!email) { errorEl.textContent = 'Enter your email first.'; return; }
+    if (!signup) {
+      if (!email || !password) { errorEl.textContent = 'Enter your email and password.'; return; }
+      busy(true);
+      try { await store.signIn(email, password); } catch (err) { errorEl.textContent = authMessage(err); busy(false); }
+      return;
+    }
+    const email2 = clean(form.email2.value, 120);
+    if (!email) { errorEl.textContent = 'Enter your email.'; return; }
+    if (email.toLowerCase() !== email2.toLowerCase()) { errorEl.textContent = 'The two emails don’t match. Check for a typo.'; form.email2.focus(); return; }
     if (password.length < 8) { errorEl.textContent = 'Choose a password with at least 8 characters.'; return; }
     busy(true);
     try { await store.signUp(email, password); } catch (err) { errorEl.textContent = authMessage(err); busy(false); }
   });
 
-  document.getElementById('reset-btn').addEventListener('click', async () => {
+  document.getElementById('reset-btn')?.addEventListener('click', async () => {
     const { email } = values();
     if (!email) { errorEl.textContent = 'Enter your email, then tap “Forgot password?” again.'; return; }
     try { await store.resetPassword(email); errorEl.textContent = ''; toast('Password reset email sent'); } catch (err) { errorEl.textContent = authMessage(err); }
