@@ -1545,3 +1545,30 @@ body.in-chat .frame { padding-bottom: calc(env(safe-area-inset-bottom) + 96px); 
 .pick-row-ex:not(:disabled) .pe-end { color: var(--train); }
 .pick-row-ex.custom { background: color-mix(in srgb, var(--train) 10%, transparent); }
 .pe-plus { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--train); color: #fff; }
+
+/* ---------- Members console (owner only) ---------- */
+.members-lead { display: flex; align-items: center; gap: 6px; margin: 0 2px 12px; }
+.members { gap: 10px; }
+.member-card { display: flex; flex-direction: column; gap: 10px; width: 100%; text-align: left; padding: 14px; font: inherit; color: inherit; }
+.member-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.avatar { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 17px;
+  background: color-mix(in srgb, var(--train) 18%, transparent); color: var(--train); }
+.avatar.sm { width: 32px; height: 32px; font-size: 14px; }
+.m-rec { flex: none; display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
+.m-rec strong { font-size: 20px; font-weight: 800; color: var(--c); }
+.m-rec span { font-size: 11px; color: var(--text-3); }
+.m-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.m-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 999px; font-size: 12px;
+  background: var(--surface-2, rgba(255,255,255,.06)); color: var(--text-2); }
+.m-chip.live { background: color-mix(in srgb, var(--train) 20%, transparent); color: var(--train); font-weight: 600; }
+.viewbar { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 6px); z-index: 16; display: flex; align-items: center; gap: 10px;
+  margin: 0 2px 14px; padding: 8px 8px 8px 10px; border-radius: 16px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--train) 14%, rgba(16,16,18,.82)); border: 1px solid color-mix(in srgb, var(--train) 35%, transparent); }
+.viewbar-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.viewbar-text b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.viewbar-text span { font-size: 12px; color: var(--text-2); }
+.viewbar-exit { padding: 8px 14px; min-height: 0; width: auto; }
+body.viewing .tabbar [data-tab="money"] { display: none; }
+.privacy-note { display: flex; gap: 10px; align-items: flex-start; }
+.privacy-note svg { flex: none; margin-top: 2px; }
+.privacy-note p { margin: 0; }

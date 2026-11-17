@@ -58,6 +58,7 @@ const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)')
 
 const ICONS = {
   today: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  people: '<circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16.5 14.2c2.4.2 4 1.7 4.5 4.3"/>',
   train: '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/>',
   money: '<rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18M16.5 14.5h.01"/>',
   water: '<path d="M12 3.5s6 6.4 6 10.8a6 6 0 0 1-12 0C6 9.9 12 3.5 12 3.5z"/>',
@@ -274,7 +275,12 @@ let animateNext = true;
 // Unsaved kg/reps typed into a session exercise card, kept across re-renders.
 const drafts = {};
 
-const data = () => store.data;
+// Members console: while the owner views a member, the whole app shows that member's data, read only.
+let viewing = null; // { uid, email, data } or null
+let isOwner = false; // set when the database lets this account list members
+let memberList = null;
+const memberCache = new Map(); // uid → that member's data (loaded once; Refresh reloads)
+const data = () => viewing?.data ?? store.data;
 const settings = () => ({ trainGoal: 45, ...data().settings });
 const write = (promise, okMessage) => {
   if (okMessage) toast(okMessage);
@@ -440,7 +446,7 @@ function todayView() {
     </button>`;
 
   return `
-    ${head(dateLabel, 'Today', `<button class="icon-btn press chat-btn" data-tab="chat" aria-label="Ask the AI assistant">${icon('spark', 20, 1.9)}</button>${settingsBtn}`)}
+    ${head(dateLabel, viewing ? memberName(viewing.email) : 'Today', `${isOwner && !viewing ? `<button class="icon-btn press" data-action="members" aria-label="Members console">${icon('people', 20)}</button>` : ''}<button class="icon-btn press chat-btn" data-tab="chat" aria-label="Ask the AI assistant">${icon('spark', 20, 1.9)}</button>${settingsBtn}`)}
     <div class="stack">
       ${live ? liveBanner(live) : ''}
       <section class="card hero recovery-card" style="--glow:color-mix(in srgb, ${rec.color} 35%, transparent)">
@@ -459,25 +465,25 @@ function todayView() {
 
       <div class="metrics">
         ${metric('train', 'Train', 'train', 'var(--train)', trainP, `${minsToday}`, `of ${s.trainGoal} min`)}
-        ${metric('money', overToday ? 'Over' : 'Spent', 'money', overToday ? 'var(--critical)' : 'var(--money)', clamp01(spentToday / allowance), shortRupees(spentToday), `of ${shortRupees(allowance)}/day`)}
+        ${viewing ? '' : metric('money', overToday ? 'Over' : 'Spent', 'money', overToday ? 'var(--critical)' : 'var(--money)', clamp01(spentToday / allowance), shortRupees(spentToday), `of ${shortRupees(allowance)}/day`)}
         ${metric('weight', wt.label, 'scale', wt.ok ? 'var(--good)' : 'var(--goal)', wt.ring, wt.value, wt.of)}
       </div>
 
-      <div class="quick">
+      ${viewing ? '' : `<div class="quick">
         <button class="press" data-action="${live ? 'resume-session' : 'start-session'}" style="--c:var(--train)">${icon(live ? 'right' : 'gym', 16, 2.2)}${live ? 'Resume' : 'Gym'}</button>
         <button class="press" data-action="add-expense" style="--c:var(--money)">${icon('plus', 16, 2.4)}Expense</button>
         <button class="press" data-action="weight-add" style="--c:var(--goal)">${icon('scale', 16, 2.2)}Weigh in</button>
-      </div>
+      </div>`}
 
       <section class="card">
         <div class="card-head"><div class="card-title">Training minutes</div><div class="card-sub">Last 7 days</div></div>
         ${columns(mins, days, 'var(--train)', (v) => `${v}`, 'min')}
       </section>
 
-      <section class="card">
+      ${viewing ? '' : `<section class="card">
         <div class="card-head"><div class="card-title">Spending</div><div class="card-sub">Last 7 days</div></div>
         ${columns(spend, days, 'var(--money)', shortRupees, '')}
-      </section>
+      </section>`}
 
       ${d.goals.length ? `<section class="card">
         <div class="card-head"><div class="card-title">Goals</div>
@@ -2276,6 +2282,7 @@ function pendingBedtime() {
 const isEvening = () => { const h = new Date().getHours(); return h >= 20 || h < 4; };
 
 function sleepControls(ci) {
+  if (viewing) return `<div class="sleep-controls"><p class="sleep-note">${icon('moon', 14)} ${ci ? `${fmtSleep(ci.sleep)} slept last night` : 'No sleep logged for last night'}</p></div>`;
   const pending = pendingBedtime();
   const parts = [];
   if (pending) {
@@ -3275,6 +3282,7 @@ function renderShell() {
   app.innerHTML = `
     <div class="frame">
       ${store.mode === 'local' ? '<div class="banner">Test mode: data is saved in this browser only.</div>' : ''}
+      <div id="viewbar"></div>
       <main id="view"></main>
     </div>
     <nav class="tabbar" aria-label="Sections">${TABS.map((t) => `
@@ -3294,6 +3302,7 @@ function render() {
   const inLibrary = route === 'exercises'; const inExplore = route === 'muscles'; const inChat = route === 'chat';
   const tab = inChat ? TABS[0] : inSession || inLibrary || inExplore ? TABS[1] : (TABS.find((t) => t.id === route) ?? TABS[0]);
   view.innerHTML = inSession ? sessionView() : inLibrary ? libraryView() : inExplore ? exploreView() : inChat ? chatView() : VIEWS[tab.id]();
+  renderViewbar();
   document.body.classList.toggle('in-session', inSession); document.body.classList.toggle('in-chat', inChat);
   if (inSession) lastActivity = Date.now();
   syncWakeLock(inSession && wantScreenOn()); // On / Auto / Off; always allowed to sleep while paused
@@ -3316,6 +3325,7 @@ function render() {
 }
 
 function go(tab) {
+  if (viewing && tab === 'money') { toast('Money stays private for members', true); return; }
   if (tab === route) { window.scrollTo({ top: 0, behavior: reduceMotion() ? 'auto' : 'smooth' }); return; }
   route = tab;
   animateNext = true;
@@ -3917,7 +3927,14 @@ function settingsSheet() {
       <div class="row-main"><div class="row-title">Assistant settings</div>
         <div class="row-sub">${aiSetup().key ? `${aiSetup().name} · answers inside the app` : `Free mode · opens ${aiSetup().name}`}</div></div>
       <span class="faint">${icon('right', 18)}</span></button>
-    <span class="label">Body diagrams</span>
+${isOwner ? `<span class="label">Members</span>
+<button type="button" class="row card press" data-action="members" style="padding:14px 16px">
+  <div class="tile-icon" style="--c:var(--train)">${icon('people', 19)}</div>
+  <div class="row-main"><div class="row-title">Members console</div>
+    <div class="row-sub">${memberList ? plural(memberList.length, 'member') : 'See everyone'} · read only · Money stays private</div></div>
+  <span class="faint">${icon('right', 18)}</span></button>` : store.mode === 'cloud' ? `<span class="label">Privacy</span>
+<section class="card small muted privacy-note">${icon('lock', 16)}<p>The app owner can see your workouts, sleep, weight, goals and plans to help you train. Your <b>Money</b> section stays private.</p></section>` : ''}
+<span class="label">Body diagrams</span>
     <div class="seg-tabs" role="tablist">${[['male', 'Male'], ['female', 'Female']].map(([v, l]) => `
       <button type="button" class="press" role="tab" data-action="body-sex" data-v="${v}" aria-selected="${bodySex() === v}">${l}</button>`).join('')}</div>
     <span class="label">Credits</span>
@@ -3959,7 +3976,11 @@ function exportBackup() {
 /* ================= Events ================= */
 
 const ACTIONS = {
-  'settings': () => settingsSheet(),
+'settings': () => settingsSheet(),
+'members': () => membersConsole(),
+'member-view': (el) => viewMember(el.dataset.uid),
+'member-exit': () => exitMember(),
+'member-refresh': () => membersConsole(true),
   'sheet-close': () => closeSheet(),
   'add-workout': () => (activeSession() ? go('session') : startSessionSheet()),
   'quick-log': () => quickLogForm(),
@@ -4220,7 +4241,7 @@ const ACTIONS = {
     try { await navigator.clipboard.writeText(store.user.uid); toast('User ID copied'); } catch { toast('Copy failed. Select the ID and copy it.', true); }
   },
   'export': () => exportBackup(),
-  'signout': async () => { closeSheet(); await store.signOut(); },
+  'signout': async () => { closeSheet(); exitMember(true); await store.signOut(); },
 };
 
 document.addEventListener('click', (e) => {
@@ -4352,6 +4373,154 @@ function handleLinkActions() {
   openWaterOnStart = true;
 }
 
+/* ================= Members console (owner only) ================= */
+
+const memberName = (email) => { const n = String(email || 'Member').split('@')[0].replace(/[._-]+/g, ' ').trim(); return titleCase(n) || 'Member'; };
+const fmtAgo = (t) => {
+  if (!t) return 'not yet';
+  const min = Math.round((Date.now() - t) / 60000);
+  if (min < 2) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  if (min < 24 * 60) return `${Math.round(min / 60)} h ago`;
+  const days = Math.round((startOfDay().getTime() - startOfDay(t).getTime()) / 864e5);
+  return days <= 1 ? 'yesterday' : days < 30 ? `${days} days ago` : fmtDate(t);
+};
+
+/** Runs fn with the app looking at another member's data (used to reuse the Today calculations). */
+function withData(d, fn) {
+  const prev = viewing;
+  viewing = { ...(prev ?? {}), data: d };
+  try { return fn(); } finally { viewing = prev; }
+}
+
+function checkOwner() {
+  isOwner = false; memberList = null; memberCache.clear();
+  if (!store.listMembers) return;
+  store.listMembers().then((list) => {
+    isOwner = true;
+    memberList = list.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+    render();
+  }).catch(() => { /* not the owner: nothing to show */ });
+}
+
+async function memberData(uid, fresh = false) {
+  if (fresh || !memberCache.has(uid)) memberCache.set(uid, await store.loadMember(uid));
+  return memberCache.get(uid);
+}
+
+function memberSummary(d) {
+  return withData(d, () => {
+    const done = doneWorkouts().sort((a, b) => b.at - a.at);
+    const last = done[0] ?? null;
+    const sleep = [...(d.checkins ?? [])].sort((a, b) => (a.day < b.day ? 1 : -1))[0] ?? null;
+    const wt = latestWeight();
+    const hasData = done.length || (d.checkins ?? []).length;
+    return {
+      live: activeSession(),
+      last,
+      week: done.filter((w) => sameWeek(w.at)).length,
+      weight: wt?.kg ?? null,
+      sleep,
+      rec: hasData ? recoveryStatus() : null,
+      lastActive: Math.max(last?.at ?? 0, sleep?.at ?? 0, wt?.at ?? 0),
+    };
+  });
+}
+
+function memberCard(m, d) {
+  if (!d) return `<div class="member-card card"><div class="member-top"><div class="avatar">${esc(memberName(m.email)[0])}</div>
+    <div class="row-main"><div class="row-title">${esc(memberName(m.email))}</div><div class="row-sub">Couldn’t load this member</div></div></div></div>`;
+  const x = memberSummary(d);
+  const chips = [
+    x.live ? `<span class="m-chip live">${icon('gym', 13, 2.2)}Training now</span>` : '',
+    x.last ? `<span class="m-chip">${icon(typeIcon(x.last.type), 13, 2)}${esc(x.last.title || x.last.type || 'Workout')} · ${esc(fmtAgo(x.last.at))}</span>` : '<span class="m-chip faint">No workouts yet</span>',
+    x.sleep ? `<span class="m-chip">${icon('moon', 13, 2)}${fmtSleep(x.sleep.sleep)}</span>` : '',
+    x.weight ? `<span class="m-chip">${icon('scale', 13, 2)}${fmtKg(x.weight)} kg</span>` : '',
+  ].join('');
+  return `<button type="button" class="member-card card press" data-action="member-view" data-uid="${esc(m.uid)}">
+    <div class="member-top">
+      <div class="avatar">${esc(memberName(m.email)[0])}</div>
+      <div class="row-main"><div class="row-title">${esc(memberName(m.email))}</div>
+        <div class="row-sub">${esc(m.email)} · opened app ${esc(fmtAgo(m.lastSeen))}</div></div>
+      ${x.rec ? `<div class="m-rec" style="--c:${x.rec.color}"><strong class="num">${x.rec.score}%</strong><span>Recovery</span></div>` : ''}
+    </div>
+    <div class="m-chips">${chips}${x.last ? `<span class="m-chip">${icon('calendar', 13, 2)}${plural(x.week, 'workout')} this week</span>` : ''}</div>
+  </button>`;
+}
+
+async function membersConsole(fresh = false) {
+  const body = (inner) => `<p class="small muted members-lead">${icon('lock', 14)} Read only. Money stays private. Tap someone to open their app.</p>${inner}
+    <button type="button" class="btn ghost press" data-action="member-refresh" style="margin-top:14px">${icon('down', 18)}Refresh</button>`;
+  openSheet('Members', body(`<div class="empty">Loading members…</div>`), null, '', 'var(--train)');
+  try {
+    if (fresh || !memberList) {
+      memberList = (await store.listMembers()).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+      memberCache.clear();
+    }
+    const datas = await Promise.all(memberList.map((m) => memberData(m.uid).catch(() => null)));
+    const html = memberList.length
+      ? `<div class="stack members">${memberList.map((m, i) => memberCard(m, datas[i])).join('')}</div>`
+      : emptyState('people', 'No members yet. A member shows up here after they open the app once.');
+    const sheetBody = document.querySelector('#sheet-root .sheet[aria-label="Members"] .sheet-body');
+    if (sheetBody) sheetBody.innerHTML = body(html);
+  } catch (err) {
+    const sheetBody = document.querySelector('#sheet-root .sheet[aria-label="Members"] .sheet-body');
+    if (sheetBody) sheetBody.innerHTML = body(`<div class="empty">${icon('alert', 24)}Couldn’t load members: ${esc(err?.message ?? err)}</div>`);
+  }
+}
+
+// While viewing, every save is refused, so the member's data can never be changed by accident.
+const WRITE_METHODS = ['add', 'set', 'update', 'remove', 'saveSettings'];
+function lockWrites(on) {
+  for (const m of WRITE_METHODS) {
+    if (on && !store[`_${m}`]) {
+      store[`_${m}`] = store[m];
+      store[m] = () => Promise.reject(new Error(`you’re viewing ${memberName(viewing?.email)} (read only)`));
+    } else if (!on && store[`_${m}`]) {
+      store[m] = store[`_${m}`];
+      delete store[`_${m}`];
+    }
+  }
+}
+
+async function viewMember(uid) {
+  const m = memberList?.find((x) => x.uid === uid);
+  if (!m) return;
+  try {
+    const d = await memberData(uid);
+    closeSheet();
+    viewing = { uid, email: m.email, data: d };
+    lockWrites(true);
+    route = 'today'; animateNext = true;
+    history.replaceState(null, '', '#today');
+    window.scrollTo(0, 0);
+    render();
+  } catch (err) { toast(`Couldn’t open: ${err?.message ?? err}`, true); }
+}
+
+function exitMember(quiet = false) {
+  if (!viewing) return;
+  viewing = null;
+  lockWrites(false);
+  if (quiet) return;
+  animateNext = true;
+  window.scrollTo(0, 0);
+  render();
+  toast('Back to your own data');
+}
+
+function renderViewbar() {
+  const bar = document.getElementById('viewbar');
+  if (!bar) return;
+  document.body.classList.toggle('viewing', Boolean(viewing));
+  bar.innerHTML = viewing ? `<div class="viewbar">
+      <div class="avatar sm">${esc(memberName(viewing.email)[0])}</div>
+      <div class="viewbar-text"><b>Viewing ${esc(memberName(viewing.email))}</b><span>Read only · Money hidden</span></div>
+      <button type="button" class="text-btn" data-action="members">Switch</button>
+      <button type="button" class="btn tint press viewbar-exit" style="--c:var(--train)" data-action="member-exit">Exit</button>
+    </div>` : '';
+}
+
 /* ================= Start ================= */
 
 async function boot() {
@@ -4368,6 +4537,7 @@ async function boot() {
       animateNext = true;
       renderShell();
       render();
+      checkOwner();
       handleLinkActions();
       if (openWaterOnStart) {
         openWaterOnStart = false;
