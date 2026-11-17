@@ -1725,7 +1725,7 @@ function planView() {
           <div class="row-end">${end}</div>
         </button>`;
       }).join('')}
-      ${todaysRoutine() && !activeSession() ? `<button class="btn tint press" style="--c:var(--train);margin-top:4px" data-action="start-routine" data-id="${esc(todaysRoutine().id)}">${icon('bolt', 18, 2.2)}Start today: ${esc(todaysRoutine().name)}</button>` : ''}`;
+      ${todaysRoutine() && !activeSession() && !viewing ? `<button class="btn tint press" style="--c:var(--train);margin-top:4px" data-action="start-routine" data-id="${esc(todaysRoutine().id)}">${icon('bolt', 18, 2.2)}Start today: ${esc(todaysRoutine().name)}</button>` : ''}`;
   } else {
     body = routines.length ? `${routines.map((r) => {
       const onDays = days.map((id, i) => (id === r.id ? DAY_NAMES[i].slice(0, 3) : null)).filter(Boolean);
@@ -1739,7 +1739,7 @@ function planView() {
     }).join('')}
       <button class="btn ghost press" data-action="routine-new">${icon('plus', 18, 2.4)}New routine</button>` : starter;
   }
-  return `${head('Your weekly routine', 'Plan', planTab === 'routines' ? addBtn('routine-new', 'New routine') : '')}
+  return `${head(viewing ? `${memberName(viewing.email)}’s weekly routine` : 'Your weekly routine', 'Plan', planTab === 'routines' ? addBtn('routine-new', 'New routine') : '')}
     <div class="stack">${tabs}${body}</div>`;
 }
 
@@ -4664,12 +4664,43 @@ function lockWrites(on) {
   for (const m of WRITE_METHODS) {
     if (on && !store[`_${m}`]) {
       store[`_${m}`] = store[m];
-      store[m] = () => Promise.reject(new Error(`you’re viewing ${memberName(viewing?.email)} (read only)`));
+      store[m] = (...args) => memberWrite(m, args);
     } else if (!on && store[`_${m}`]) {
       store[m] = store[`_${m}`];
       delete store[`_${m}`];
     }
   }
+}
+
+// While viewing a member, an admin can change their Plan: routines and the weekly schedule.
+// Everything else stays read only (the database rules enforce the same thing).
+function memberWrite(m, args) {
+  const v = viewing;
+  const readOnly = () => Promise.reject(new Error(`only ${memberName(v?.email)}’s Plan can be changed (the rest is read only)`));
+  if (!v) return readOnly();
+  const d = v.data;
+  let send;
+  if (['set', 'update', 'remove'].includes(m) && args[0] === 'routines') {
+    const [, id, obj] = args;
+    if (m === 'set') d.routines = [...d.routines.filter((x) => x.id !== id), { id, ...obj }];
+    if (m === 'update') d.routines = d.routines.map((x) => (x.id === id ? { ...x, ...obj } : x));
+    if (m === 'remove') d.routines = d.routines.filter((x) => x.id !== id);
+    send = store.memberWrite(v.uid, m, 'routines', id, obj);
+  } else if (m === 'saveSettings' && args[0] && Object.keys(args[0]).every((k) => k === 'plan')) {
+    d.settings = { ...d.settings, plan: args[0].plan };
+    send = store.memberSettings(v.uid, args[0]);
+  } else {
+    return readOnly();
+  }
+  render();
+  // If the save is refused, reload their real data so the screen doesn't show something that wasn't saved.
+  return send.catch(async (err) => {
+    try {
+      const fresh = await memberData(v.uid, true);
+      if (viewing?.uid === v.uid) { viewing.data = fresh; render(); }
+    } catch { /* keep what's on screen */ }
+    throw err;
+  });
 }
 
 async function viewMember(uid) {
@@ -4704,7 +4735,7 @@ function renderViewbar() {
   document.body.classList.toggle('viewing', Boolean(viewing));
   bar.innerHTML = viewing ? `<div class="viewbar">
       <div class="avatar sm">${esc(memberName(viewing.email)[0])}</div>
-      <div class="viewbar-text"><b>Viewing ${esc(memberName(viewing.email))}</b><span>Read only · Money hidden</span></div>
+      <div class="viewbar-text"><b>Viewing ${esc(memberName(viewing.email))}</b><span>You can edit their Plan · Money hidden</span></div>
       <button type="button" class="text-btn" data-action="members">Switch</button>
       <button type="button" class="btn tint press viewbar-exit" style="--c:var(--train)" data-action="member-exit">Exit</button>
     </div>` : '';

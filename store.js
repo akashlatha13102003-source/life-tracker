@@ -54,6 +54,25 @@ function localStore(onChange) {
       if (!demo.length) throw Object.assign(new Error('Not the owner'), { code: 'permission-denied' });
       return demo.map(({ uid, email, lastSeen }) => ({ uid, email, lastSeen }));
     },
+    async memberWrite(id, op, col, docId, obj) {
+      const all = demoMembers();
+      const m = all.find((x) => x.uid === id);
+      if (!m) throw new Error('Member not found');
+      m.data = m.data ?? {};
+      const list = (m.data[col] ?? []).filter((x) => x.id !== docId);
+      if (op === 'set') list.push({ id: docId, ...obj });
+      if (op === 'update') { const old = (m.data[col] ?? []).find((x) => x.id === docId); if (old) list.push({ ...old, ...obj }); }
+      m.data[col] = list;
+      localStorage.setItem('lt-demo-members', JSON.stringify(all));
+    },
+    async memberSettings(id, patch) {
+      const all = demoMembers();
+      const m = all.find((x) => x.uid === id);
+      if (!m) throw new Error('Member not found');
+      m.data = m.data ?? {};
+      m.data.settings = { ...(m.data.settings ?? {}), ...patch };
+      localStorage.setItem('lt-demo-members', JSON.stringify(all));
+    },
     async loadMember(id) {
       const m = demoMembers().find((x) => x.uid === id);
       const out = emptyData();
@@ -150,6 +169,14 @@ async function cloudStore(onChange) {
         uid: d.id, email: d.data().profile?.email ?? '', lastSeen: d.data().profile?.lastSeen ?? 0,
       }));
     },
+    // Admins can change a member's Plan: routines and the weekly schedule (settings.plan). Rules allow nothing else.
+    memberWrite(id, op, col, docId, obj) {
+      const ref = F.doc(db, 'users', id, col, docId);
+      if (op === 'set') return F.setDoc(ref, obj);
+      if (op === 'update') return F.updateDoc(ref, obj);
+      return F.deleteDoc(ref);
+    },
+    memberSettings: (id, patch) => F.setDoc(F.doc(db, 'users', id), { settings: patch }, { merge: true }),
     async loadMember(id) {
       const out = emptyData();
       await Promise.all(MEMBER_COLLECTIONS.map(async (c) => {

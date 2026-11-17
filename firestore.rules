@@ -10,7 +10,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isOwner() {
-      return request.auth != null && request.auth.uid == "PASTE_OWNER_USER_ID";
+      return request.auth != null && request.auth.uid in ["PASTE_OWNER_USER_ID"];
     }
 
     // A member's own data: full access.
@@ -19,8 +19,17 @@ service cloud.firestore {
     }
 
     // Owner: list members and read their settings and profile (name, last active).
+    // Owner can also change a member's weekly schedule (settings.plan), and nothing else in that document.
     match /users/{userId} {
       allow read: if isOwner();
+      allow update: if isOwner()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['settings'])
+        && request.resource.data.get('settings', {}).diff(resource.data.get('settings', {})).affectedKeys().hasOnly(['plan']);
+    }
+
+    // Owner: create, edit and delete a member's routines.
+    match /users/{userId}/routines/{docId} {
+      allow write: if isOwner();
     }
 
     // Owner: read members' workouts, sleep, weight, goals and plans. Never their expenses.
