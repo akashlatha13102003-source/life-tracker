@@ -1552,6 +1552,10 @@ body.in-chat .frame { padding-bottom: calc(env(safe-area-inset-bottom) + 96px); 
 /* ---------- Members console (owner only) ---------- */
 .members-lead { display: flex; align-items: center; gap: 6px; margin: 0 2px 12px; }
 .members { gap: 10px; }
+.member-wrap { position: relative; }
+.member-wrap .m-chips { padding-right: 40px; }
+.member-remove { position: absolute; right: 8px; bottom: 8px; width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 10px; background: none; color: var(--text-3); }
+.member-remove:active, .member-remove:hover { color: var(--critical); background: var(--surface-2); }
 .member-card { display: flex; flex-direction: column; gap: 10px; width: 100%; text-align: left; padding: 14px; font: inherit; color: inherit; }
 .member-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .avatar { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 17px;

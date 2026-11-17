@@ -3989,6 +3989,7 @@ const ACTIONS = {
   'whoop-sync': () => syncWhoop(false),
   'whoop-disconnect': () => disconnectWhoop(),
   'member-view': (el) => viewMember(el.dataset.uid),
+  'member-remove': (el) => removeMember(el.dataset.uid),
   'member-exit': () => exitMember(),
   'member-refresh': () => membersConsole(true),
   'sheet-close': () => closeSheet(),
@@ -4551,12 +4552,17 @@ function withData(d, fn) {
   try { return fn(); } finally { viewing = prev; }
 }
 
+// Members an admin removed from their list: { uid: time removed }. Saved in the admin's own settings,
+// so it never touches the member. Someone who opens the app again after being removed shows up again.
+const hiddenMembers = () => store.data.settings?.hiddenMembers ?? {};
+const visibleMembers = (list) => list.filter((m) => !(hiddenMembers()[m.uid] >= (m.lastSeen || 0)));
+
 function checkOwner() {
   isOwner = false; memberList = null; memberCache.clear();
   if (!store.listMembers) return;
   store.listMembers().then((list) => {
     isOwner = true;
-    memberList = list.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+    memberList = visibleMembers(list).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
     render();
   }).catch(() => { /* not the owner: nothing to show */ });
 }
@@ -4587,9 +4593,31 @@ function memberSummary(d) {
   });
 }
 
+const removeBtn = (m) => `<button type="button" class="member-remove press" data-action="member-remove" data-uid="${esc(m.uid)}" aria-label="Remove ${esc(m.email || 'member')} from the list">${icon('trash', 16)}</button>`;
+
+async function removeMember(uid) {
+  const m = memberList?.find((x) => x.uid === uid);
+  if (!m) return;
+  const ok = await askConfirm({
+    title: `Remove ${memberName(m.email)}?`,
+    message: `${m.email} disappears from your Members list. Their account and data aren’t deleted, and if they open the app again they’ll show up here again.`,
+    yes: 'Remove',
+  });
+  if (!ok) return;
+  // Always saves to the admin's own settings, even while looking at someone else.
+  const save = store._saveSettings ?? store.saveSettings;
+  try {
+    await save({ hiddenMembers: { ...hiddenMembers(), [uid]: Date.now() } });
+  } catch (err) { toast(`Couldn’t remove: ${err?.message ?? err}`); return; }
+  memberList = memberList.filter((x) => x.uid !== uid);
+  memberCache.delete(uid);
+  toast(`${memberName(m.email)} removed from the list`);
+  membersConsole();
+}
+
 function memberCard(m, d) {
-  if (!d) return `<div class="member-card card"><div class="member-top"><div class="avatar">${esc(memberName(m.email)[0])}</div>
-    <div class="row-main"><div class="row-title">${esc(memberName(m.email))}</div><div class="row-sub">Couldn’t load this member</div></div></div></div>`;
+  if (!d) return `<div class="member-wrap"><div class="member-card card"><div class="member-top"><div class="avatar">${esc(memberName(m.email)[0])}</div>
+    <div class="row-main"><div class="row-title">${esc(memberName(m.email))}</div><div class="row-sub">${esc(m.email)} · couldn’t load</div></div></div></div>${removeBtn(m)}</div>`;
   const x = memberSummary(d);
   const chips = [
     x.live ? `<span class="m-chip live">${icon('gym', 13, 2.2)}Training now</span>` : '',
@@ -4598,7 +4626,7 @@ function memberCard(m, d) {
     x.weight ? `<span class="m-chip">${icon('scale', 13, 2)}${fmtKg(x.weight)} kg</span>` : '',
     x.rec?.whoop?.strain != null ? `<span class="m-chip whoop">${icon('flame', 13, 2)}Strain ${x.rec.whoop.strain}</span>` : '',
   ].join('');
-  return `<button type="button" class="member-card card press" data-action="member-view" data-uid="${esc(m.uid)}">
+  return `<div class="member-wrap"><button type="button" class="member-card card press" data-action="member-view" data-uid="${esc(m.uid)}">
     <div class="member-top">
       <div class="avatar">${esc(memberName(m.email)[0])}</div>
       <div class="row-main"><div class="row-title">${esc(memberName(m.email))}</div>
@@ -4606,7 +4634,7 @@ function memberCard(m, d) {
       ${x.rec ? `<div class="m-rec" style="--c:${x.rec.color}"><strong class="num">${x.rec.score}%</strong><span>Recovery</span></div>` : ''}
     </div>
     <div class="m-chips">${chips}${x.last ? `<span class="m-chip">${icon('calendar', 13, 2)}${plural(x.week, 'workout')} this week</span>` : ''}</div>
-  </button>`;
+  </button>${removeBtn(m)}</div>`;
 }
 
 async function membersConsole(fresh = false) {
@@ -4615,7 +4643,7 @@ async function membersConsole(fresh = false) {
   openSheet('Members', body(`<div class="empty">Loading members…</div>`), null, '', 'var(--train)');
   try {
     if (fresh || !memberList) {
-      memberList = (await store.listMembers()).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+      memberList = visibleMembers(await store.listMembers()).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
       memberCache.clear();
     }
     const datas = await Promise.all(memberList.map((m) => memberData(m.uid).catch(() => null)));
