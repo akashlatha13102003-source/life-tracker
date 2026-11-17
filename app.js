@@ -1854,7 +1854,7 @@ async function openShareRoutine(id) {
         <div class="avatar sm">${esc((m.me ? 'You' : memberName(m.email))[0])}</div>
         <div class="row-main"><div class="row-title">${esc(m.me ? 'You' : memberName(m.email))}</div><div class="row-sub">${esc(m.email)}</div></div>
         <span class="pick-check">${icon('check', 18, 2.6)}</span></label>`).join('')}</section>
-    ${days.length ? `<label class="row share-days"><input type="checkbox" name="days" checked>
+    ${days.length ? `<label class="row share-days"><input type="checkbox" name="days">
         <div class="row-main"><div class="row-title">Also put it on ${esc(dayNames)}</div><div class="row-sub">Replaces whatever they had planned on ${days.length > 1 ? 'those days' : 'that day'}</div></div></label>` : ''}
     <button type="button" class="btn tint press" style="--c:var(--water);margin-top:14px" data-action="share-send">${icon('share', 18, 2.2)}Share</button>`
     : emptyState('people', 'No members to share with yet.')}`);
